@@ -7,11 +7,21 @@ import { formatWithPrettier, isPrettierAvailable } from "../../utils/prettier-fo
 
 const indentCache = new WeakMap<TSESLint.SourceCode, string>();
 
+const ObjectReturnStyle = {
+	AlwaysExplicit: "always-explicit",
+	ComplexExplicit: "complex-explicit",
+	Off: "off",
+} as const;
+
+type ObjectReturnStyle = (typeof ObjectReturnStyle)[keyof typeof ObjectReturnStyle];
+
 type Options = [
 	{
 		jsxAlwaysUseExplicitReturn?: boolean;
 		maxLen?: number;
+		maxObjectProperties?: number;
 		namedExportsAlwaysUseExplicitReturn?: boolean;
+		objectReturnStyle?: ObjectReturnStyle;
 		usePrettier?: boolean;
 	},
 ];
@@ -20,10 +30,15 @@ export const RULE_NAME = "arrow-return-style";
 
 const IMPLICIT_RETURN_VIOLATION = "use-implicit-return";
 const EXPLICIT_RETURN_VIOLATION = "use-explicit-return";
+const EXPLICIT_RETURN_COMPLEX = "use-explicit-return-complex";
 
-type MessageIds = typeof EXPLICIT_RETURN_VIOLATION | typeof IMPLICIT_RETURN_VIOLATION;
+type MessageIds =
+	| typeof EXPLICIT_RETURN_COMPLEX
+	| typeof EXPLICIT_RETURN_VIOLATION
+	| typeof IMPLICIT_RETURN_VIOLATION;
 
 const messages = {
+	[EXPLICIT_RETURN_COMPLEX]: "Use explicit return for complex {{type}} expressions.",
 	[EXPLICIT_RETURN_VIOLATION]: "Use explicit return for arrow function bodies.",
 	[IMPLICIT_RETURN_VIOLATION]: "Use implicit return for arrow function bodies.",
 };
@@ -141,6 +156,24 @@ function calculateImplicitLength(
 	return lastLineBeforeArrow.length + 1 + estimatedSingleLineText.length;
 }
 
+function checkForceExplicitForObject(
+	body: TSESTree.ArrowFunctionExpression["body"],
+	options: {
+		maxObjectProperties: number;
+		objectReturnStyle: ObjectReturnStyle;
+	},
+): boolean {
+	if (body.type === AST_NODE_TYPES.ObjectExpression) {
+		return shouldForceObjectExplicit(body, options);
+	}
+
+	if (body.type === AST_NODE_TYPES.ArrayExpression) {
+		return shouldForceArrayExplicit(body, options);
+	}
+
+	return false;
+}
+
 function commentsExistBetweenTokens(
 	node: TSESTree.ArrowFunctionExpression,
 	body: TSESTree.ArrowFunctionExpression["body"],
@@ -159,6 +192,10 @@ function convertMultilineToSingleLine(returnValue: string): string {
 		.replace(/\s+\]/g, "]")
 		.replace(/{\s+/g, "{")
 		.replace(/\s+}/g, "}");
+}
+
+function countObjectProperties(node: TSESTree.ObjectExpression): number {
+	return node.properties.length;
 }
 
 function create(
@@ -375,10 +412,28 @@ function getMethodChainIndentation(
 	return baseIndent + indentUnit;
 }
 
+function getReportData(
+	body: TSESTree.ArrowFunctionExpression["body"],
+	isObjectArrayRule: boolean,
+): undefined | { type: string } {
+	return isObjectArrayRule
+		? { type: body.type === AST_NODE_TYPES.ObjectExpression ? "object" : "array" }
+		: undefined;
+}
+
+function getReportMessageId(
+	body: TSESTree.ArrowFunctionExpression["body"],
+	isObjectArrayRule: boolean,
+): MessageIds {
+	return isObjectArrayRule ? EXPLICIT_RETURN_COMPLEX : getExplicitReturnMessageId(body);
+}
+
 function getRuleOptions(context: TSESLint.RuleContext<MessageIds, Options>): {
 	jsxAlwaysUseExplicitReturn?: boolean;
 	maxLength: number;
+	maxObjectProperties: number;
 	namedExportsAlwaysExplicit: boolean;
+	objectReturnStyle: ObjectReturnStyle;
 	usePrettier: boolean;
 } {
 	const [options] = context.options;
@@ -387,7 +442,9 @@ function getRuleOptions(context: TSESLint.RuleContext<MessageIds, Options>): {
 		/* eslint-disable ts/no-non-null-assertion -- Options are guaranteed to have these properties */
 		jsxAlwaysUseExplicitReturn: options.jsxAlwaysUseExplicitReturn!,
 		maxLength: options.maxLen!,
+		maxObjectProperties: options.maxObjectProperties!,
 		namedExportsAlwaysExplicit: options.namedExportsAlwaysUseExplicitReturn!,
+		objectReturnStyle: options.objectReturnStyle!,
 		usePrettier: options.usePrettier ?? isPrettierAvailable(),
 		/* eslint-enable ts/no-non-null-assertion */
 	};
@@ -448,8 +505,16 @@ function handleExpressionBody(
 	context: Readonly<TSESLint.RuleContext<MessageIds, Options>>,
 	node: TSESTree.ArrowFunctionExpression,
 ): void {
-	if (shouldUseExplicitReturn(context, node)) {
-		reportExplicitReturn(context, node);
+	const shouldUseExplicit = shouldUseExplicitReturn(context, node);
+	if (shouldUseExplicit) {
+		const { body } = node;
+		const { maxObjectProperties, objectReturnStyle } = getRuleOptions(context);
+		const isObjectArrayRule = checkForceExplicitForObject(body, {
+			maxObjectProperties,
+			objectReturnStyle,
+		});
+
+		reportExplicitReturn(context, node, { isObjectArrayRule });
 	}
 }
 
@@ -484,6 +549,66 @@ function hasCommentsInBlock(
 	return (
 		sourceCode.commentsExistBetween(openingBrace, firstToken) ||
 		sourceCode.commentsExistBetween(lastToken, closingBrace)
+	);
+}
+
+function isComplexArray(node: TSESTree.ArrayExpression): boolean {
+	let hasSpread = false;
+	let nonSpreadCount = 0;
+	let functionCallCount = 0;
+
+	for (const element of node.elements) {
+		if (!element) {
+			// Handle sparse arrays (holes)
+			continue;
+		}
+
+		if (element.type === AST_NODE_TYPES.SpreadElement) {
+			hasSpread = true;
+			continue;
+		}
+
+		nonSpreadCount++;
+
+		if (element.type === AST_NODE_TYPES.CallExpression) {
+			functionCallCount++;
+		}
+	}
+
+	// Complex if:
+	// - Has spread + other elements combination
+	// - Has multiple function calls
+	return (hasSpread && nonSpreadCount >= 1) || functionCallCount >= 2;
+}
+
+function isComplexObject(node: TSESTree.ObjectExpression): boolean {
+	let hasSpread = false;
+	let hasComputed = false;
+	let functionCallCount = 0;
+
+	for (const property of node.properties) {
+		if (property.type === AST_NODE_TYPES.SpreadElement) {
+			hasSpread = true;
+			continue;
+		}
+
+		if (property.computed) {
+			hasComputed = true;
+		}
+
+		if (property.value.type === AST_NODE_TYPES.CallExpression) {
+			functionCallCount++;
+		}
+	}
+
+	// Complex if:
+	// - Has spread + computed combination
+	// - Has multiple function calls
+	// - Has computed + function call combination
+	return (
+		(hasSpread && hasComputed) ||
+		functionCallCount >= 2 ||
+		(hasComputed && functionCallCount >= 1)
 	);
 }
 
@@ -561,15 +686,18 @@ function processImplicitReturn(
 function reportExplicitReturn(
 	context: Readonly<TSESLint.RuleContext<MessageIds, Options>>,
 	node: TSESTree.ArrowFunctionExpression,
+	options?: { isObjectArrayRule?: boolean },
 ): void {
 	const { body } = node;
 	const { sourceCode } = context;
+	const isObjectArrayRule = options?.isObjectArrayRule === true;
 
 	const firstToken = sourceCode.getTokenBefore(body);
 	const lastToken = sourceCode.getTokenAfter(body);
 	const commentsExist = commentsExistBetweenTokens(node, body, sourceCode);
 
 	context.report({
+		data: getReportData(body, isObjectArrayRule),
 		fix: (fixer) => {
 			if (commentsExist) {
 				return [
@@ -585,9 +713,78 @@ function reportExplicitReturn(
 
 			return handleExplicitReturnFix({ arrowToken, body, fixer, node, sourceCode });
 		},
-		messageId: getExplicitReturnMessageId(body),
+		messageId: getReportMessageId(body, isObjectArrayRule),
 		node,
 	});
+}
+
+function shouldForceArrayExplicit(
+	node: TSESTree.ArrayExpression,
+	options: {
+		objectReturnStyle: ObjectReturnStyle;
+	},
+): boolean {
+	const { objectReturnStyle } = options;
+
+	switch (objectReturnStyle) {
+		case ObjectReturnStyle.AlwaysExplicit: {
+			return true;
+		}
+		case ObjectReturnStyle.ComplexExplicit: {
+			// For arrays, we ignore element count and only check complexity patterns
+			return isComplexArray(node);
+		}
+		case ObjectReturnStyle.Off: {
+			return false;
+		}
+		default: {
+			return false;
+		}
+	}
+}
+
+function shouldForceObjectExplicit(
+	node: TSESTree.ObjectExpression,
+	options: {
+		maxObjectProperties: number;
+		objectReturnStyle: ObjectReturnStyle;
+	},
+): boolean {
+	const { maxObjectProperties, objectReturnStyle } = options;
+
+	switch (objectReturnStyle) {
+		case ObjectReturnStyle.AlwaysExplicit: {
+			return true;
+		}
+		case ObjectReturnStyle.ComplexExplicit: {
+			const propertyCount = countObjectProperties(node);
+			return propertyCount > maxObjectProperties || isComplexObject(node);
+		}
+		case ObjectReturnStyle.Off: {
+			return false;
+		}
+		default: {
+			return false;
+		}
+	}
+}
+
+function shouldSkipForObjectLogic(
+	returnValue: TSESTree.Expression,
+	options: {
+		maxObjectProperties: number;
+		objectReturnStyle: ObjectReturnStyle;
+	},
+): boolean {
+	if (returnValue.type === AST_NODE_TYPES.ObjectExpression) {
+		return shouldForceObjectExplicit(returnValue, options);
+	}
+
+	if (returnValue.type === AST_NODE_TYPES.ArrayExpression) {
+		return shouldForceArrayExplicit(returnValue, options);
+	}
+
+	return false;
 }
 
 function shouldSkipImplicitReturn(
@@ -595,14 +792,23 @@ function shouldSkipImplicitReturn(
 	node: TSESTree.ArrowFunctionExpression,
 	returnValue: TSESTree.Expression,
 ): boolean {
-	const { jsxAlwaysUseExplicitReturn, maxLength, namedExportsAlwaysExplicit } =
-		getRuleOptions(context);
+	const {
+		jsxAlwaysUseExplicitReturn,
+		maxLength,
+		maxObjectProperties,
+		namedExportsAlwaysExplicit,
+		objectReturnStyle,
+	} = getRuleOptions(context);
 
 	const { estimatedLength, wouldBeMultiline } = getImplicitReturnMetrics(
 		context,
 		node,
 		returnValue,
 	);
+
+	if (shouldSkipForObjectLogic(returnValue, { maxObjectProperties, objectReturnStyle })) {
+		return true;
+	}
 
 	return (
 		estimatedLength > maxLength ||
@@ -620,11 +826,21 @@ function shouldUseExplicitReturn(
 	const { body, parent } = node;
 
 	const commentsExist = commentsExistBetweenTokens(node, body, sourceCode);
-	const { jsxAlwaysUseExplicitReturn, maxLength, namedExportsAlwaysExplicit } =
-		getRuleOptions(context);
+	const {
+		jsxAlwaysUseExplicitReturn,
+		maxLength,
+		maxObjectProperties,
+		namedExportsAlwaysExplicit,
+		objectReturnStyle,
+	} = getRuleOptions(context);
 
 	const { estimatedLength, wouldBeMultiline } = getImplicitReturnMetrics(context, node, body);
 	const wouldBeTooLong = estimatedLength > maxLength;
+
+	// Check for object-specific logic
+	if (checkForceExplicitForObject(body, { maxObjectProperties, objectReturnStyle })) {
+		return true;
+	}
 
 	// Use explicit return if:
 	// - There are comments that would be lost
@@ -660,7 +876,9 @@ const defaultOptions: Options = [
 	{
 		jsxAlwaysUseExplicitReturn: false,
 		maxLen: 80,
+		maxObjectProperties: 2,
 		namedExportsAlwaysUseExplicitReturn: true,
+		objectReturnStyle: ObjectReturnStyle.ComplexExplicit,
 		usePrettier: false,
 	},
 ];
@@ -690,9 +908,25 @@ export const arrowReturnStyleRule = createEslintRule({
 						description: "Maximum line length before requiring explicit return",
 						type: "number",
 					},
+					maxObjectProperties: {
+						description:
+							"Maximum number of object properties before requiring explicit return (only applies when objectReturnStyle is 'complex-explicit')",
+						minimum: 1,
+						type: "number",
+					},
 					namedExportsAlwaysUseExplicitReturn: {
 						description: "Always use explicit return for named exports",
 						type: "boolean",
+					},
+					objectReturnStyle: {
+						description:
+							"Control when object and array returns should use explicit syntax",
+						enum: [
+							ObjectReturnStyle.AlwaysExplicit,
+							ObjectReturnStyle.ComplexExplicit,
+							ObjectReturnStyle.Off,
+						],
+						type: "string",
 					},
 					usePrettier: {
 						description:
