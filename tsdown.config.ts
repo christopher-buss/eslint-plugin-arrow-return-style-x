@@ -4,11 +4,7 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
 	clean: true,
 	entry: ["src/index.ts", "workers/prettier-worker.ts"],
-	external: [
-		"@typescript-eslint/utils",
-		"typescript",
-		"prettier",
-	],
+	external: ["@typescript-eslint/utils", "typescript", "prettier"],
 	fixedExtension: true,
 	format: ["esm"],
 	noExternal: ["ts-api-utils"],

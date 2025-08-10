@@ -250,6 +250,21 @@ function createImplicitReturnFix(
 		const returnText = sourceCode.getText(returnValue);
 		const replacement = isObjectLiteral(returnValue) ? `(${returnText})` : returnText;
 
+		const tokenAfterClosingBrace = sourceCode.getTokenAfter(closingBrace);
+
+		if (
+			tokenAfterClosingBrace &&
+			(ASTUtils.isSemicolonToken(tokenAfterClosingBrace) ||
+				tokenAfterClosingBrace.value === ",")
+		) {
+			return [
+				fixer.replaceTextRange(
+					[openingBrace.range[0], tokenAfterClosingBrace.range[1]],
+					replacement + tokenAfterClosingBrace.value,
+				),
+			];
+		}
+
 		return [
 			fixer.replaceTextRange([openingBrace.range[0], closingBrace.range[1]], replacement),
 		];
@@ -450,6 +465,16 @@ function getRuleOptions(context: TSESLint.RuleContext<MessageIds, Options>): {
 	};
 }
 
+function getTrailingPunctuation(
+	tokenAfterBody: TSESTree.Token,
+	isWrappedInParens: boolean,
+): string {
+	return !isWrappedInParens &&
+		(ASTUtils.isSemicolonToken(tokenAfterBody) || tokenAfterBody.value === ",")
+		? tokenAfterBody.value
+		: "";
+}
+
 function handleBlockStatement(
 	context: Readonly<TSESLint.RuleContext<MessageIds, Options>>,
 	node: TSESTree.ArrowFunctionExpression,
@@ -478,22 +503,25 @@ function handleExplicitReturnFix(context: ExplicitReturnFixContext): Array<TSESL
 	const tokenAfterBody = sourceCode.getTokenAfter(body);
 	const tokenBeforeBody = sourceCode.getTokenBefore(body);
 
-	const isWrappedInParens =
+	const isWrappedInParens = Boolean(
 		tokenBeforeBody &&
-		tokenAfterBody &&
-		ASTUtils.isOpeningParenToken(tokenBeforeBody) &&
-		ASTUtils.isClosingParenToken(tokenAfterBody);
+			tokenAfterBody &&
+			ASTUtils.isOpeningParenToken(tokenBeforeBody) &&
+			ASTUtils.isClosingParenToken(tokenAfterBody),
+	);
 
 	if (
 		tokenAfterBody &&
 		(ASTUtils.isSemicolonToken(tokenAfterBody) ||
 			tokenAfterBody.value === "," ||
-			Boolean(isWrappedInParens))
+			isWrappedInParens)
 	) {
+		const trailingPunctuation = getTrailingPunctuation(tokenAfterBody, isWrappedInParens);
+
 		return [
 			fixer.replaceTextRange(
 				[arrowToken.range[1], tokenAfterBody.range[1]],
-				` ${returnText}`,
+				` ${returnText}${trailingPunctuation}`,
 			),
 		];
 	}

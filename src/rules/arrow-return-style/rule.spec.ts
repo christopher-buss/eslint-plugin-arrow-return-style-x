@@ -139,6 +139,8 @@ const valid: Array<ValidTestCase> = [
 		code: "const singleFunctionCall = () => ({ name: getValue() })",
 		options: [{ objectReturnStyle: complexExplicitOption }],
 	},
+
+	// "\t\treturn Promise.try(() => BadgeService.UserHasBadgeAsync(player.UserId, tonumber(badge)));",
 ];
 
 const invalid: Array<InvalidTestCase> = [
@@ -150,7 +152,7 @@ const invalid: Array<InvalidTestCase> = [
 		output: unindent`
 			const UDimTemporary = (value: UDim, rem: number): UDim => {
 				return new UDim(value.Scale, value.Offset * rem);
-			}
+			};
 		`,
 	},
 
@@ -166,7 +168,7 @@ const invalid: Array<InvalidTestCase> = [
 			const obj = {
 			  UDimTemporary11111111111: (value: UDim, rem: number): UDim => {
 			    return new UDim(value.Scale, value.Offset * rem);
-			  }
+			  },
 			};
 		`,
 	},
@@ -180,7 +182,7 @@ const invalid: Array<InvalidTestCase> = [
 		output: unindent`
 			const isVariableDeclaration = (node: TSESTree.Node | null | undefined): node is TSESTree.VariableDeclaration => {
 			  return node?.type === AST_NODE_TYPES.VariableDeclaration;
-			}
+			};
 		`,
 	},
 
@@ -570,6 +572,23 @@ const invalid: Array<InvalidTestCase> = [
 			const longArrayExceedsMaxLen = () => {
 				return ['this', 'array', 'is', 'long'];
 			}
+		`,
+	},
+
+	{
+		code: unindent`
+			const obj = {
+				UDim: (value: UDim, rem: number): UDim => new UDim(value.Scale, value.Offset * rem),
+			};
+		`,
+		errors: [{ messageId: explicitMessageId }],
+		options: [{ objectReturnStyle: complexExplicitOption }],
+		output: unindent`
+			const obj = {
+				UDim: (value: UDim, rem: number): UDim => {
+					return new UDim(value.Scale, value.Offset * rem);
+				},
+			};
 		`,
 	},
 ];
