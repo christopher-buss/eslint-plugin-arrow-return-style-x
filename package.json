@@ -50,13 +50,13 @@
 		"*": "eslint --fix"
 	},
 	"dependencies": {
-		"@isentinel/eslint-config": "catalog:cli",
 		"@typescript-eslint/utils": "catalog:cli",
 		"detect-indent": "catalog:cli",
 		"synckit": "catalog:cli"
 	},
 	"devDependencies": {
 		"@antfu/ni": "catalog:cli",
+		"@isentinel/eslint-config": "catalog:cli",
 		"@types/node": "catalog:types",
 		"@typescript-eslint/eslint-plugin": "catalog:cli",
 		"@typescript-eslint/parser": "catalog:cli",
