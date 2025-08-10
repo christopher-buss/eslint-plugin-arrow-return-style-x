@@ -37,7 +37,6 @@
 		"eslint-docs": "eslint-doc-generator",
 		"posteslint-docs": "nr lint --cache --fix \"**/*.md\"",
 		"lint": "eslint --cache",
-		"prepare": "simple-git-hooks",
 		"prepublishOnly": "nr build",
 		"release": "bumpp",
 		"start": "tsx src/index.ts",
