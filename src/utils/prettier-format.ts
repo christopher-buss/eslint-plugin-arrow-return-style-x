@@ -51,7 +51,7 @@ const currentDirname = dirname(currentFilename);
 const workerPath =
 	process.env.PRETTIER_WORKER_PATH !== undefined && process.env.PRETTIER_WORKER_PATH !== ""
 		? resolve(process.env.PRETTIER_WORKER_PATH)
-		: resolve(currentDirname, "../workers/prettier-worker.ts");
+		: resolve(currentDirname, "../../dist/workers/prettier-worker.mjs");
 
 const prettierWorkerSync = createSyncFn(workerPath) as (request: WorkerRequest) => WorkerResult;
 
