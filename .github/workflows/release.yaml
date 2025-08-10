@@ -1,45 +1,33 @@
 name: Release
 
+permissions:
+  id-token: write
+  contents: write
+
 on:
   push:
     tags:
-      - "v*"
-
-permissions:
-  contents: write
+      - 'v*'
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           fetch-depth: 0
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
-          cache: pnpm
-          registry-url: "https://registry.npmjs.org"
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org/
 
-      - name: Generate Changelog
-        run: npx changelogithub
-        continue-on-error: true
+      - run: pnpm dlx changelogithub
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
 
-      - name: Install Dependencies
-        run: pnpm i
-
-      - name: PNPM build
-        run: pnpm build
-
-      - name: Publish to NPM
-        run: pnpm publish --access public --no-git-checks
+      - run: pnpm install
+      - run: pnpm publish --no-git-checks -r --access public
         env:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+          NPM_CONFIG_PROVENANCE: true

@@ -43,14 +43,20 @@
 		"test": "vitest",
 		"typecheck": "tsc --noEmit"
 	},
+	"simple-git-hooks": {
+		"pre-commit": "pnpm i --frozen-lockfile --ignore-scripts --offline && npx lint-staged"
+	},
+	"lint-staged": {
+		"*": "eslint --fix"
+	},
 	"dependencies": {
+		"@isentinel/eslint-config": "catalog:cli",
 		"@typescript-eslint/utils": "catalog:cli",
 		"detect-indent": "catalog:cli",
 		"synckit": "catalog:cli"
 	},
 	"devDependencies": {
 		"@antfu/ni": "catalog:cli",
-		"@isentinel/eslint-config": "link:d:/roblox/personal/roblox-ts-eslint-config",
 		"@types/node": "catalog:types",
 		"@typescript-eslint/eslint-plugin": "catalog:cli",
 		"@typescript-eslint/parser": "catalog:cli",
@@ -86,6 +92,7 @@
 		"node": ">=20.0.0"
 	},
 	"publishConfig": {
-		"access": "public"
+		"access": "public",
+		"provenance": true
 	}
 }
