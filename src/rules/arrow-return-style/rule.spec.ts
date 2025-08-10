@@ -1,7 +1,7 @@
 import { type InvalidTestCase, unindent, type ValidTestCase } from "eslint-vitest-rule-tester";
 
 import { run } from "../test";
-import { arrowReturnStyleRule, RULE_NAME } from "./rule";
+import { type ArrowReturnStyleOptions, arrowReturnStyleRule, RULE_NAME } from "./rule";
 
 const implicitMessageId = "use-implicit-return";
 const explicitMessageId = "use-explicit-return";
@@ -140,7 +140,16 @@ const valid: Array<ValidTestCase> = [
 		options: [{ objectReturnStyle: complexExplicitOption }],
 	},
 
-	// "\t\treturn Promise.try(() => BadgeService.UserHasBadgeAsync(player.UserId, tonumber(badge)));",
+	{
+		code: "Promise.try(() => BadgeService.UserHasBadgeAsync(player.UserId, tonumber(badge)));",
+		options: [
+			{
+				jsxAlwaysUseExplicitReturn: true,
+				maxLen: 100,
+				usePrettier: { printWidth: 100 },
+			},
+		],
+	},
 ];
 
 const invalid: Array<InvalidTestCase> = [
@@ -593,9 +602,36 @@ const invalid: Array<InvalidTestCase> = [
 	},
 ];
 
+/**
+ * Adds default options to a test case.
+ *
+ * @param testCase - The test case to modify.
+ * @returns The modified test case with default options.
+ */
+function addDefaultOptions(
+	testCase: string | { code: string; options?: Array<ArrowReturnStyleOptions> },
+) {
+	// As we have prettier installed in this project, and we have a
+	// `.editorconfig` file, prettier is assumed to be on by default, and the
+	// `usePrettier` option is set to true. This is used to override that
+	// default for our tests.
+	if (typeof testCase === "string") {
+		return { code: testCase, options: [{ usePrettier: false }] };
+	}
+
+	if (testCase.options === undefined) {
+		return { ...testCase, options: [{ usePrettier: false }] };
+	}
+
+	return {
+		...testCase,
+		options: [{ usePrettier: false, ...testCase.options[0] }],
+	};
+}
+
 run({
-	invalid,
+	invalid: invalid.map(addDefaultOptions),
 	name: RULE_NAME,
 	rule: arrowReturnStyleRule,
-	valid,
+	valid: valid.map(addDefaultOptions),
 });

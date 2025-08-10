@@ -1,9 +1,14 @@
 import { AST_NODE_TYPES, ASTUtils, type TSESLint, type TSESTree } from "@typescript-eslint/utils";
 
 import detectIndent from "detect-indent";
+import type { Options as PrettierOptions } from "prettier";
 
 import { createEslintRule } from "../../util";
-import { formatWithPrettier, isPrettierAvailable } from "../../utils/prettier-format";
+import {
+	formatWithPrettier,
+	isPrettierEnabled,
+	shouldUsePrettier,
+} from "../../utils/prettier-format";
 
 const indentCache = new WeakMap<TSESLint.SourceCode, string>();
 
@@ -13,18 +18,18 @@ const ObjectReturnStyle = {
 	Off: "off",
 } as const;
 
-type ObjectReturnStyle = (typeof ObjectReturnStyle)[keyof typeof ObjectReturnStyle];
-
-type Options = [
+export type ArrowReturnStyleOptions = [
 	{
 		jsxAlwaysUseExplicitReturn?: boolean;
 		maxLen?: number;
 		maxObjectProperties?: number;
 		namedExportsAlwaysUseExplicitReturn?: boolean;
 		objectReturnStyle?: ObjectReturnStyle;
-		usePrettier?: boolean;
+		usePrettier?: boolean | null | PrettierOptions;
 	},
 ];
+
+type ObjectReturnStyle = (typeof ObjectReturnStyle)[keyof typeof ObjectReturnStyle];
 
 export const RULE_NAME = "arrow-return-style";
 
@@ -110,8 +115,9 @@ function buildPrettierCode(
 
 function calcPrettierImplicitLength(
 	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
-	context: TSESLint.RuleContext<MessageIds, Options>,
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
 	node: TSESTree.ArrowFunctionExpression,
+	prettierOptions: PrettierOptions,
 ): { isMultiline: boolean; length: number } {
 	const { sourceCode } = context;
 
@@ -120,7 +126,7 @@ function calcPrettierImplicitLength(
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
 	}
 
-	const prettierResult = formatWithPrettier(fullImplicitCode, context);
+	const prettierResult = formatWithPrettier(fullImplicitCode, context, prettierOptions);
 	if (prettierResult.error !== undefined) {
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
 	}
@@ -199,7 +205,7 @@ function countObjectProperties(node: TSESTree.ObjectExpression): number {
 }
 
 function create(
-	context: Readonly<TSESLint.RuleContext<MessageIds, Options>>,
+	context: Readonly<TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>>,
 ): TSESLint.RuleListener {
 	return {
 		ArrowFunctionExpression: (node) => {
@@ -369,15 +375,15 @@ function getExplicitReturnMessageId(body: TSESTree.ArrowFunctionExpression["body
 }
 
 function getImplicitReturnMetrics(
-	context: TSESLint.RuleContext<MessageIds, Options>,
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
 	node: TSESTree.ArrowFunctionExpression,
 	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
 ): { estimatedLength: number; wouldBeMultiline: boolean } {
 	const { sourceCode } = context;
 	const { usePrettier } = getRuleOptions(context);
 
-	if (usePrettier) {
-		const prettierResult = calcPrettierImplicitLength(returnValue, context, node);
+	if (isPrettierEnabled(usePrettier)) {
+		const prettierResult = calcPrettierImplicitLength(returnValue, context, node, usePrettier);
 		return {
 			estimatedLength: prettierResult.length,
 			wouldBeMultiline: prettierResult.isMultiline,
@@ -443,26 +449,16 @@ function getReportMessageId(
 	return isObjectArrayRule ? EXPLICIT_RETURN_COMPLEX : getExplicitReturnMessageId(body);
 }
 
-function getRuleOptions(context: TSESLint.RuleContext<MessageIds, Options>): {
-	jsxAlwaysUseExplicitReturn?: boolean;
-	maxLength: number;
-	maxObjectProperties: number;
-	namedExportsAlwaysExplicit: boolean;
-	objectReturnStyle: ObjectReturnStyle;
-	usePrettier: boolean;
-} {
+function getRuleOptions(
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
+): Required<ArrowReturnStyleOptions[0]> {
 	const [options] = context.options;
 
+	// See https://github.com/typescript-eslint/typescript-eslint/issues/5439
 	return {
-		/* eslint-disable ts/no-non-null-assertion -- Options are guaranteed to have these properties */
-		jsxAlwaysUseExplicitReturn: options.jsxAlwaysUseExplicitReturn!,
-		maxLength: options.maxLen!,
-		maxObjectProperties: options.maxObjectProperties!,
-		namedExportsAlwaysExplicit: options.namedExportsAlwaysUseExplicitReturn!,
-		objectReturnStyle: options.objectReturnStyle!,
-		usePrettier: options.usePrettier ?? isPrettierAvailable(),
-		/* eslint-enable ts/no-non-null-assertion */
-	};
+		...options,
+		usePrettier: shouldUsePrettier(context, { usePrettier: options.usePrettier }),
+	} as Required<ArrowReturnStyleOptions[0]>;
 }
 
 function getTrailingPunctuation(
@@ -476,7 +472,7 @@ function getTrailingPunctuation(
 }
 
 function handleBlockStatement(
-	context: Readonly<TSESLint.RuleContext<MessageIds, Options>>,
+	context: Readonly<TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>>,
 	node: TSESTree.ArrowFunctionExpression,
 ): void {
 	const blockBody = (node.body as TSESTree.BlockStatement).body;
@@ -530,7 +526,7 @@ function handleExplicitReturnFix(context: ExplicitReturnFixContext): Array<TSESL
 }
 
 function handleExpressionBody(
-	context: Readonly<TSESLint.RuleContext<MessageIds, Options>>,
+	context: Readonly<TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>>,
 	node: TSESTree.ArrowFunctionExpression,
 ): void {
 	const shouldUseExplicit = shouldUseExplicitReturn(context, node);
@@ -677,7 +673,7 @@ function normalizeParentheses(
 }
 
 function processImplicitReturn(
-	context: TSESLint.RuleContext<MessageIds, Options>,
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
 	node: TSESTree.ArrowFunctionExpression,
 	returnStatement: TSESTree.ReturnStatement,
 	returnValue: TSESTree.Expression,
@@ -712,7 +708,7 @@ function processImplicitReturn(
 }
 
 function reportExplicitReturn(
-	context: Readonly<TSESLint.RuleContext<MessageIds, Options>>,
+	context: Readonly<TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>>,
 	node: TSESTree.ArrowFunctionExpression,
 	options?: { isObjectArrayRule?: boolean },
 ): void {
@@ -816,15 +812,15 @@ function shouldSkipForObjectLogic(
 }
 
 function shouldSkipImplicitReturn(
-	context: TSESLint.RuleContext<MessageIds, Options>,
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
 	node: TSESTree.ArrowFunctionExpression,
 	returnValue: TSESTree.Expression,
 ): boolean {
 	const {
 		jsxAlwaysUseExplicitReturn,
-		maxLength,
+		maxLen,
 		maxObjectProperties,
-		namedExportsAlwaysExplicit,
+		namedExportsAlwaysUseExplicitReturn,
 		objectReturnStyle,
 	} = getRuleOptions(context);
 
@@ -839,15 +835,15 @@ function shouldSkipImplicitReturn(
 	}
 
 	return (
-		estimatedLength > maxLength ||
+		estimatedLength > maxLen ||
 		wouldBeMultiline ||
 		(Boolean(jsxAlwaysUseExplicitReturn) && isJsxElement(returnValue)) ||
-		(namedExportsAlwaysExplicit && isNamedExport(node.parent))
+		(namedExportsAlwaysUseExplicitReturn && isNamedExport(node.parent))
 	);
 }
 
 function shouldUseExplicitReturn(
-	context: TSESLint.RuleContext<MessageIds, Options>,
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
 	node: TSESTree.ArrowFunctionExpression,
 ): boolean {
 	const { sourceCode } = context;
@@ -856,14 +852,14 @@ function shouldUseExplicitReturn(
 	const commentsExist = commentsExistBetweenTokens(node, body, sourceCode);
 	const {
 		jsxAlwaysUseExplicitReturn,
-		maxLength,
+		maxLen,
 		maxObjectProperties,
-		namedExportsAlwaysExplicit,
+		namedExportsAlwaysUseExplicitReturn,
 		objectReturnStyle,
 	} = getRuleOptions(context);
 
 	const { estimatedLength, wouldBeMultiline } = getImplicitReturnMetrics(context, node, body);
-	const wouldBeTooLong = estimatedLength > maxLength;
+	const isExceedingMaxLength = estimatedLength > maxLen;
 
 	// Check for object-specific logic
 	if (checkForceExplicitForObject(body, { maxObjectProperties, objectReturnStyle })) {
@@ -878,10 +874,10 @@ function shouldUseExplicitReturn(
 	// - Body is multiline (any multiline body should use explicit return)
 	return (
 		commentsExist ||
-		wouldBeTooLong ||
+		isExceedingMaxLength ||
 		wouldBeMultiline ||
 		(Boolean(jsxAlwaysUseExplicitReturn) && isJsxElement(body)) ||
-		(namedExportsAlwaysExplicit && isNamedExport(parent))
+		(namedExportsAlwaysUseExplicitReturn && isNamedExport(parent))
 	);
 }
 
@@ -900,16 +896,16 @@ function validateImplicitReturnTokens(tokens: {
 	return !!(openingBrace && closingBrace && firstToken && lastToken);
 }
 
-const defaultOptions: Options = [
+const defaultOptions = [
 	{
 		jsxAlwaysUseExplicitReturn: false,
 		maxLen: 80,
 		maxObjectProperties: 2,
 		namedExportsAlwaysUseExplicitReturn: true,
 		objectReturnStyle: ObjectReturnStyle.ComplexExplicit,
-		usePrettier: false,
+		usePrettier: undefined,
 	},
-];
+] satisfies ArrowReturnStyleOptions;
 
 export const arrowReturnStyleRule = createEslintRule({
 	create,
@@ -958,8 +954,21 @@ export const arrowReturnStyleRule = createEslintRule({
 					},
 					usePrettier: {
 						description:
-							"Use Prettier to determine actual formatted line length (auto-detects Prettier availability if not explicitly set)",
-						type: "boolean",
+							"Prettier integration: false=disabled, true=auto-resolve config, object=explicit config, undefined=auto-detect availability",
+						oneOf: [
+							{
+								description: "Enable or disable Prettier integration",
+								type: "boolean",
+							},
+							{
+								description: "Explicit Prettier configuration object",
+								type: "object",
+							},
+							{
+								description: "Auto-detect Prettier availability",
+								type: "null",
+							},
+						],
 					},
 				},
 				type: "object",

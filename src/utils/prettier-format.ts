@@ -29,6 +29,8 @@ interface FormatResult {
 	success: true;
 }
 
+type PrettierConfig = boolean | null | PrettierOptions | undefined;
+
 interface PrettierFormatResult {
 	error?: string;
 	formatted: string;
@@ -106,6 +108,10 @@ export function isPrettierAvailable(): boolean {
 	}
 }
 
+export function isPrettierEnabled(usePrettier: PrettierConfig): usePrettier is PrettierOptions {
+	return usePrettier === true || (typeof usePrettier === "object" && usePrettier !== null);
+}
+
 /**
  * Resolve Prettier configuration options for the project.
  *
@@ -113,7 +119,7 @@ export function isPrettierAvailable(): boolean {
  * @returns The Prettier configuration options, or an empty object if none
  *   found.
  */
-export function resolvePrettierConfigOptions(filePath = "package.json"): Record<string, any> {
+export function resolvePrettierConfigOptions(filePath = "package.json"): PrettierOptions {
 	try {
 		const result = prettierWorkerSync({
 			filePath,
@@ -123,6 +129,36 @@ export function resolvePrettierConfigOptions(filePath = "package.json"): Record<
 	} catch {
 		return {};
 	}
+}
+
+export function shouldUsePrettier(
+	context: TSESLint.RuleContext<any, any>,
+	options: {
+		usePrettier: PrettierConfig;
+	},
+): false | PrettierOptions {
+	const filePath = context.physicalFilename || context.filename || "file.ts";
+
+	const { usePrettier } = options;
+
+	if (usePrettier === false) {
+		return false;
+	}
+
+	if (usePrettier === true) {
+		return resolvePrettierConfigOptions(filePath);
+	}
+
+	if (typeof usePrettier === "object" && usePrettier !== null) {
+		return usePrettier;
+	}
+
+	const isAvailable = isPrettierAvailable();
+	if (isAvailable) {
+		return resolvePrettierConfigOptions(filePath);
+	}
+
+	return false;
 }
 
 /**
