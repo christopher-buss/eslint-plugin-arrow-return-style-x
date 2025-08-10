@@ -146,7 +146,7 @@ Contributions are welcome!
 
 ## License
 
-[MIT](./LICENSE) License © 2024
+[MIT](./LICENSE) License © 2025
 [Christopher Buss](https://github.com/christopher-buss)
 
 Original work © 2023 [u3u](https://github.com/u3u)
