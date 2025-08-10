@@ -150,6 +150,43 @@ const valid: Array<ValidTestCase> = [
 			},
 		],
 	},
+
+	{
+		code: "const handlers = [() => 'handler']",
+		options: [{ usePrettier: true }],
+	},
+	{
+		code: "export default () => 'hello'",
+		options: [{ usePrettier: true }],
+	},
+	{
+		code: "const fn = flag ? () => 'a' : () => 'b'",
+		options: [{ usePrettier: true }],
+	},
+
+	{
+		code: unindent`
+			await import("@antfu/install-pkg").then((index) => {
+				return index.installPackage(nonExistingPackages, { dev: true });
+			});
+		`,
+		options: [
+			{
+				jsxAlwaysUseExplicitReturn: true,
+				maxLen: 100,
+				usePrettier: { printWidth: 100 },
+			},
+		],
+	},
+
+	{
+		code: unindent`
+			someVeryLongFunctionName().anotherChainedMethod().finalMethod((param) => {
+				return complexCalculation(param);
+			});
+		`,
+		options: [{ maxLen: 80, usePrettier: { printWidth: 80 } }],
+	},
 ];
 
 const invalid: Array<InvalidTestCase> = [
@@ -598,6 +635,23 @@ const invalid: Array<InvalidTestCase> = [
 					return new UDim(value.Scale, value.Offset * rem);
 				},
 			};
+		`,
+	},
+
+	{
+		code: unindent`
+			Promise.all([
+				fetch('url1').then((res) => { return res.json(); }),
+				fetch('url2').then((res) => { return res.text(); }),
+			]);
+		`,
+		errors: [{ messageId: implicitMessageId }, { messageId: implicitMessageId }],
+		options: [{ maxLen: 60, usePrettier: { printWidth: 60 } }],
+		output: unindent`
+			Promise.all([
+				fetch('url1').then((res) => res.json()),
+				fetch('url2').then((res) => res.text()),
+			]);
 		`,
 	},
 ];

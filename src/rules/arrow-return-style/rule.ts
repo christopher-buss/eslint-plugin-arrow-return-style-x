@@ -81,15 +81,6 @@ function adjustJsxIndentation(bodyText: string, indentUnit: string): string {
 	return adjustedLines.join("\n");
 }
 
-/**
- * Builds the complete code for prettier formatting.
- *
- * @param returnValue - The return value expression.
- * @param sourceCode - ESLint source code object.
- * @param node - The arrow function node.
- * @returns Complete code string for prettier formatting, or null if unable to
- *   build.
- */
 function buildPrettierCode(
 	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
 	sourceCode: TSESLint.SourceCode,
@@ -110,7 +101,14 @@ function buildPrettierCode(
 		implicitReturnText = `(${returnValueText})`;
 	}
 
-	return `const temp = ${parameters} => ${implicitReturnText}`;
+	if (isPartOfComplexExpression(node)) {
+		const contextPrefix = getContextualPrefix(node, sourceCode);
+		if (contextPrefix) {
+			return `${contextPrefix} ${parameters} => ${implicitReturnText}`;
+		}
+	}
+
+	return `${parameters} => ${implicitReturnText}`;
 }
 
 function calcPrettierImplicitLength(
@@ -121,36 +119,48 @@ function calcPrettierImplicitLength(
 ): { isMultiline: boolean; length: number } {
 	const { sourceCode } = context;
 
-	const fullImplicitCode = buildPrettierCode(returnValue, sourceCode, node);
-	if (fullImplicitCode === null) {
+	const arrowFunctionCode = buildPrettierCode(returnValue, sourceCode, node);
+	if (arrowFunctionCode === null) {
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
 	}
 
-	const prettierResult = formatWithPrettier(fullImplicitCode, context, prettierOptions);
+	const prettierResult = formatWithPrettier(arrowFunctionCode, context, prettierOptions);
 	if (prettierResult.error !== undefined) {
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
 	}
 
-	const prefixLength = "const temp = ".length;
-	const actualLength = Math.max(0, prettierResult.lineLength - prefixLength);
+	if (isPartOfComplexExpression(node)) {
+		return {
+			isMultiline: prettierResult.isMultiline,
+			length: prettierResult.lineLength,
+		};
+	}
 
+	// For standalone declarations, we want to measure just the arrow function
+	// length since the question is "if we convert this to implicit return, how
+	// long would it be?" not "how long is the entire declaration?"
 	return {
 		isMultiline: prettierResult.isMultiline,
-		length: actualLength,
+		length: prettierResult.lineLength,
 	};
 }
 
-function calculateImplicitLength(
-	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
-	sourceCode: TSESLint.SourceCode,
+function calculateDirectImplicitLength(
 	node: TSESTree.ArrowFunctionExpression,
+	sourceCode: TSESLint.SourceCode,
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
 ): number {
-	const returnValueText = sourceCode.getText(returnValue);
 	const arrowToken = getArrowToken(node, sourceCode);
 	const beforeArrow = arrowToken ? sourceCode.text.substring(0, arrowToken.range[1]) : "";
 	const lastLineBeforeArrow = beforeArrow.split("\n").pop() ?? "";
 
+	const returnValueText = sourceCode.getText(returnValue);
 	let estimatedSingleLineText = returnValueText;
+
+	if (returnValue.type === AST_NODE_TYPES.ObjectExpression) {
+		estimatedSingleLineText = `(${returnValueText})`;
+	}
+
 	if (
 		isMultiline(returnValue) &&
 		(returnValue.type === AST_NODE_TYPES.ArrayExpression ||
@@ -160,6 +170,14 @@ function calculateImplicitLength(
 	}
 
 	return lastLineBeforeArrow.length + 1 + estimatedSingleLineText.length;
+}
+
+function calculateImplicitLength(
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
+	sourceCode: TSESLint.SourceCode,
+	node: TSESTree.ArrowFunctionExpression,
+): number {
+	return calculateDirectImplicitLength(node, sourceCode, returnValue);
 }
 
 function checkForceExplicitForObject(
@@ -364,6 +382,35 @@ function getBlockStatementTokens(
 		lastToken: sourceCode.getLastToken(returnStatement),
 		openingBrace: sourceCode.getFirstToken(body),
 	};
+}
+
+/**
+ * Gets the contextual prefix for arrow functions in complex expressions. This
+ * replaces fragile string splitting with safer source text extraction.
+ *
+ * @param node - The arrow function node.
+ * @param sourceCode - ESLint source code object.
+ * @returns The contextual prefix string.
+ */
+function getContextualPrefix(
+	node: TSESTree.ArrowFunctionExpression,
+	sourceCode: TSESLint.SourceCode,
+): string {
+	const arrowToken = getArrowToken(node, sourceCode);
+	if (!arrowToken) {
+		return "";
+	}
+
+	// Get the line containing the arrow
+	const lineStart = sourceCode.getIndexFromLoc({ column: 0, line: arrowToken.loc.start.line });
+	const arrowEnd = arrowToken.range[1];
+
+	if (typeof lineStart !== "number") {
+		return "";
+	}
+
+	const lineText = sourceCode.text.substring(lineStart, arrowEnd);
+	return lineText.trim();
 }
 
 function getExplicitReturnMessageId(body: TSESTree.ArrowFunctionExpression["body"]): MessageIds {
@@ -650,6 +697,30 @@ function isNamedExport(node: TSESTree.Node): boolean {
 
 function isObjectLiteral(node: TSESTree.Node): boolean {
 	return node.type === AST_NODE_TYPES.ObjectExpression;
+}
+
+/**
+ * Determines if arrow function is part of a method chain or complex expression.
+ * This helps determine whether to use contextual formatting for prettier.
+ *
+ * @param node - The arrow function node.
+ * @returns True if the arrow function is part of a complex expression.
+ */
+function isPartOfComplexExpression(node: TSESTree.ArrowFunctionExpression): boolean {
+	const { parent } = node;
+
+	if (parent.type === AST_NODE_TYPES.CallExpression) {
+		const grandparent = parent.parent;
+		if (grandparent.type === AST_NODE_TYPES.MemberExpression) {
+			return true;
+		}
+	}
+
+	if (parent.type === AST_NODE_TYPES.CallExpression) {
+		return parent.arguments.includes(node);
+	}
+
+	return false;
 }
 
 function normalizeParentheses(
