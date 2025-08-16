@@ -9,6 +9,6 @@ export interface PluginDocumentation {
 }
 
 export const createEslintRule = RuleCreator<PluginDocumentation>((name) => {
-	const repoUrl = repository.url.replace(/\.git$/, "");
-	return `${repoUrl}/tree/v${version}/docs/rules/${name}.md`;
+	const repoUrl = repository.url.replace(/^git\+/, "").replace(/\.git$/, "");
+	return `${repoUrl}/blob/v${version}/src/rules/${name}/documentation.md`;
 });
