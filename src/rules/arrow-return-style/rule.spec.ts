@@ -199,6 +199,35 @@ const valid: Array<ValidTestCase> = [
 		`,
 		options: [{ maxLen: 100, usePrettier: { printWidth: 120 } }],
 	},
+
+	{
+		code: unindent`
+			const versions = Object.fromEntries(
+				Array.from(names)
+					.map((name) => {
+						const version = catalogs.map((catalog) => catalog[name]).find(Boolean);
+						if (version === undefined) {
+							throw new Error(\`Package \${name} not found\`);
+						}
+						return [name, version] as const;
+					})
+					.sort((a, b) => a[0].localeCompare(b[0])),
+			);
+		`,
+		options: [{ maxLen: 100, usePrettier: true }],
+	},
+	{
+		code: "items.sort((a, b) => a.name.localeCompare(b.name))",
+		options: [{ maxLen: 100, usePrettier: true }],
+	},
+	{
+		code: "numbers.filter(n => n > 0).map(n => n * 2).sort((a, b) => a - b)",
+		options: [{ maxLen: 100, usePrettier: true }],
+	},
+	{
+		code: "data.map(item => item.value).sort((a, b) => a.localeCompare(b))",
+		options: [{ maxLen: 100, usePrettier: true }],
+	},
 ];
 
 const invalid: Array<InvalidTestCase> = [
@@ -685,6 +714,27 @@ const invalid: Array<InvalidTestCase> = [
 				return tostring(value + arbitraryNumberOrSomethingWithAVeryLongName);
 			}, [short]);
 		`,
+	},
+
+	{
+		code: "items.sort((a, b) => a.veryLongPropertyNameThatMakesThisLineExceedTheMaxLength.localeCompare(b.veryLongPropertyNameThatMakesThisLineExceedTheMaxLength))",
+		errors: [{ messageId: explicitMessageId }],
+		options: [{ maxLen: 80, usePrettier: true }],
+		output: unindent`
+			items.sort((a, b) => {
+				return a.veryLongPropertyNameThatMakesThisLineExceedTheMaxLength.localeCompare(b.veryLongPropertyNameThatMakesThisLineExceedTheMaxLength);
+			})
+		`,
+	},
+	{
+		code: unindent`
+			items.sort((a, b) => {
+				return a.name.localeCompare(b.name);
+			})
+		`,
+		errors: [{ messageId: implicitMessageId }],
+		options: [{ maxLen: 100, usePrettier: true }],
+		output: "items.sort((a, b) => a.name.localeCompare(b.name))",
 	},
 ];
 

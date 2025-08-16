@@ -108,6 +108,29 @@ function buildCallExpressionContext({
 	return contextText.replace(arrowFunctionText, implicitArrowFunction);
 }
 
+function buildIsolatedArrowFunction(
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
+	sourceCode: TSESLint.SourceCode,
+	node: TSESTree.ArrowFunctionExpression,
+): null | string {
+	const returnValueText = sourceCode.getText(returnValue);
+	const nodeText = sourceCode.getText(node);
+	const arrowIndex = nodeText.indexOf(" => ");
+
+	if (arrowIndex === -1) {
+		return null;
+	}
+
+	const parameters = nodeText.substring(0, arrowIndex);
+	let implicitReturnText = returnValueText;
+
+	if (isObjectLiteral(returnValue)) {
+		implicitReturnText = `(${returnValueText})`;
+	}
+
+	return `${parameters} => ${implicitReturnText}`;
+}
+
 function buildPrettierCode(
 	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
 	sourceCode: TSESLint.SourceCode,
@@ -143,6 +166,29 @@ function buildPrettierCode(
 	return `${parameters} => ${implicitReturnText}`;
 }
 
+function calcMethodChainImplicitLength(
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
+	node: TSESTree.ArrowFunctionExpression,
+	prettierOptions: PrettierOptions,
+): { isMultiline: boolean; length: number } {
+	const { sourceCode } = context;
+	const isolatedArrowFunction = buildIsolatedArrowFunction(returnValue, sourceCode, node);
+	if (isolatedArrowFunction === null) {
+		return createPrettierFallbackResult(returnValue, sourceCode, node);
+	}
+
+	const prettierResult = formatWithPrettier(isolatedArrowFunction, context, prettierOptions);
+	if (prettierResult.error !== undefined) {
+		return createPrettierFallbackResult(returnValue, sourceCode, node);
+	}
+
+	return {
+		isMultiline: prettierResult.isMultiline,
+		length: prettierResult.lineLength,
+	};
+}
+
 function calcPrettierImplicitLength(
 	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
 	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
@@ -150,6 +196,16 @@ function calcPrettierImplicitLength(
 	prettierOptions: PrettierOptions,
 ): { isMultiline: boolean; length: number } {
 	const { sourceCode } = context;
+
+	// For method chains, when evaluating existing implicit returns,
+	// we want to measure just the arrow function itself, not the entire chain context
+	const isExistingImplicit =
+		returnValue === node.body && node.body.type !== AST_NODE_TYPES.BlockStatement;
+	const isInMethodChain = isPartOfMethodChain(node);
+
+	if (isInMethodChain && isExistingImplicit) {
+		return calcMethodChainImplicitLength(returnValue, context, node, prettierOptions);
+	}
 
 	const arrowFunctionCode = buildPrettierCode(returnValue, sourceCode, node);
 	if (arrowFunctionCode === null) {
@@ -159,13 +215,6 @@ function calcPrettierImplicitLength(
 	const prettierResult = formatWithPrettier(arrowFunctionCode, context, prettierOptions);
 	if (prettierResult.error !== undefined) {
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
-	}
-
-	if (isPartOfComplexExpression(node)) {
-		return {
-			isMultiline: prettierResult.isMultiline,
-			length: prettierResult.lineLength,
-		};
 	}
 
 	// For standalone declarations, we want to measure just the arrow function
@@ -785,6 +834,27 @@ function isPartOfComplexExpression(node: TSESTree.ArrowFunctionExpression): bool
 
 	if (parent.type === AST_NODE_TYPES.CallExpression) {
 		return parent.arguments.includes(node);
+	}
+
+	return false;
+}
+
+/**
+ * Determines if arrow function is specifically part of a method chain. This is
+ * a subset of complex expressions that helps determine when to use isolated
+ * formatting.
+ *
+ * @param node - The arrow function node.
+ * @returns True if the arrow function is part of a method chain.
+ */
+function isPartOfMethodChain(node: TSESTree.ArrowFunctionExpression): boolean {
+	const { parent } = node;
+
+	if (parent.type === AST_NODE_TYPES.CallExpression) {
+		// Check if the call expression itself is a method call (has a MemberExpression as callee)
+		// This identifies method chains like .map(), .sort(), .filter() etc.
+		// This excludes function calls like useCallback(), setTimeout(), etc.
+		return parent.callee.type === AST_NODE_TYPES.MemberExpression;
 	}
 
 	return false;
