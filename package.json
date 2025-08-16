@@ -4,7 +4,7 @@
 	"description": "Enforce arrow function return style and automatically fix it",
 	"keywords": ["arrow-body-style", "arrow-return-style", "arrow-function"],
 	"repository": {
-		"url": "https://github.com/christopher-buss/eslint-plugin-arrow-return-style-x.git",
+		"url": "git+https://github.com/christopher-buss/eslint-plugin-arrow-return-style-x.git",
 		"type": "git"
 	},
 	"license": "MIT",

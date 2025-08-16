@@ -187,6 +187,18 @@ const valid: Array<ValidTestCase> = [
 		`,
 		options: [{ maxLen: 80, usePrettier: { printWidth: 80 } }],
 	},
+
+	{
+		code: unindent`
+			 const veryLongFunctionNameHere = useCallback(
+				(value: number) => {
+					return tostring(value + arbitraryNumberOrSomethingWithAVeryLongName);
+				},
+				[short],
+			);
+		`,
+		options: [{ maxLen: 100, usePrettier: { printWidth: 120 } }],
+	},
 ];
 
 const invalid: Array<InvalidTestCase> = [
@@ -652,6 +664,26 @@ const invalid: Array<InvalidTestCase> = [
 				fetch('url1').then((res) => res.json()),
 				fetch('url2').then((res) => res.text()),
 			]);
+		`,
+	},
+
+	{
+		code: "const veryLongFunctionNameHereWithExtraLength = useCallback((value: number) => tostring(value + arbitraryNumberOrSomethingWithAVeryLongName), [short]);",
+		options: [{ maxLen: 80, usePrettier: { printWidth: 80 } }],
+		output: unindent`
+			const veryLongFunctionNameHereWithExtraLength = useCallback((value: number) => {
+				return tostring(value + arbitraryNumberOrSomethingWithAVeryLongName);
+			}, [short]);
+		`,
+	},
+
+	{
+		code: "const veryLongFunctionNameHereWithExtraLength = useCallback((value: number) => tostring(value + arbitraryNumberOrSomethingWithAVeryLongName), [short]);",
+		options: [{ maxLen: 100, usePrettier: { printWidth: 120 } }],
+		output: unindent`
+			const veryLongFunctionNameHereWithExtraLength = useCallback((value: number) => {
+				return tostring(value + arbitraryNumberOrSomethingWithAVeryLongName);
+			}, [short]);
 		`,
 	},
 ];

@@ -81,6 +81,33 @@ function adjustJsxIndentation(bodyText: string, indentUnit: string): string {
 	return adjustedLines.join("\n");
 }
 
+function buildCallExpressionContext({
+	arrowNode,
+	callExpression,
+	implicitReturnText,
+	parameters,
+	sourceCode,
+}: {
+	arrowNode: TSESTree.ArrowFunctionExpression;
+	callExpression: TSESTree.CallExpression;
+	implicitReturnText: string;
+	parameters: string;
+	sourceCode: TSESLint.SourceCode;
+}): string {
+	// For simple call expressions, just use the call expression itself
+	// For more complex cases like variable declarations, walk up to get the full context
+	const contextNode =
+		callExpression.parent.type === AST_NODE_TYPES.VariableDeclarator
+			? callExpression.parent
+			: callExpression;
+
+	const contextText = sourceCode.getText(contextNode);
+	const arrowFunctionText = sourceCode.getText(arrowNode);
+
+	const implicitArrowFunction = `${parameters} => ${implicitReturnText}`;
+	return contextText.replace(arrowFunctionText, implicitArrowFunction);
+}
+
 function buildPrettierCode(
 	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
 	sourceCode: TSESLint.SourceCode,
@@ -102,9 +129,14 @@ function buildPrettierCode(
 	}
 
 	if (isPartOfComplexExpression(node)) {
-		const contextPrefix = getContextualPrefix(node, sourceCode);
-		if (contextPrefix) {
-			return `${contextPrefix} ${parameters} => ${implicitReturnText}`;
+		const fullContext = getFullExpressionContext(
+			node,
+			sourceCode,
+			parameters,
+			implicitReturnText,
+		);
+		if (fullContext) {
+			return fullContext;
 		}
 	}
 
@@ -390,11 +422,15 @@ function getBlockStatementTokens(
  *
  * @param node - The arrow function node.
  * @param sourceCode - ESLint source code object.
+ * @param parameters - The function parameters text.
+ * @param implicitReturnText - The implicit return value text.
  * @returns The contextual prefix string.
  */
 function getContextualPrefix(
 	node: TSESTree.ArrowFunctionExpression,
 	sourceCode: TSESLint.SourceCode,
+	parameters: string,
+	implicitReturnText: string,
 ): string {
 	const arrowToken = getArrowToken(node, sourceCode);
 	if (!arrowToken) {
@@ -410,7 +446,7 @@ function getContextualPrefix(
 	}
 
 	const lineText = sourceCode.text.substring(lineStart, arrowEnd);
-	return lineText.trim();
+	return `${lineText.trim()} ${parameters} => ${implicitReturnText}`;
 }
 
 function getExplicitReturnMessageId(body: TSESTree.ArrowFunctionExpression["body"]): MessageIds {
@@ -419,6 +455,37 @@ function getExplicitReturnMessageId(body: TSESTree.ArrowFunctionExpression["body
 			body.type === AST_NODE_TYPES.ObjectExpression)
 		? IMPLICIT_RETURN_VIOLATION
 		: EXPLICIT_RETURN_VIOLATION;
+}
+
+/**
+ * Gets the full expression context for arrow functions in complex expressions.
+ * This builds the complete statement that prettier should format.
+ *
+ * @param node - The arrow function node.
+ * @param sourceCode - ESLint source code object.
+ * @param parameters - The function parameters text.
+ * @param implicitReturnText - The implicit return value text.
+ * @returns The full expression context string.
+ */
+function getFullExpressionContext(
+	node: TSESTree.ArrowFunctionExpression,
+	sourceCode: TSESLint.SourceCode,
+	parameters: string,
+	implicitReturnText: string,
+): string {
+	const { parent } = node;
+
+	if (parent.type === AST_NODE_TYPES.CallExpression) {
+		return buildCallExpressionContext({
+			arrowNode: node,
+			callExpression: parent,
+			implicitReturnText,
+			parameters,
+			sourceCode,
+		});
+	}
+
+	return getContextualPrefix(node, sourceCode, parameters, implicitReturnText);
 }
 
 function getImplicitReturnMetrics(
