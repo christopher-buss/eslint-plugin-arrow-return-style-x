@@ -228,6 +228,14 @@ const valid: Array<ValidTestCase> = [
 		code: "data.map(item => item.value).sort((a, b) => a.localeCompare(b))",
 		options: [{ maxLen: 100, usePrettier: true }],
 	},
+	{
+		code: unindent`
+			await playerStore.update(playerId, (data) => {
+				return { ...data, coins: data.coins + 100 };
+			});
+		`,
+		options: [{ maxLen: 80, usePrettier: { printWidth: 80 } }],
+	},
 ];
 
 const invalid: Array<InvalidTestCase> = [

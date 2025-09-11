@@ -108,6 +108,26 @@ function buildCallExpressionContext({
 	return contextText.replace(arrowFunctionText, implicitArrowFunction);
 }
 
+function buildConvertedArrowFunction(
+	node: TSESTree.ArrowFunctionExpression,
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
+	sourceCode: TSESLint.SourceCode,
+): null | string {
+	const nodeText = sourceCode.getText(node);
+	const arrowIndex = nodeText.indexOf(" => ");
+	if (arrowIndex === -1) {
+		return null;
+	}
+
+	const parameters = nodeText.substring(0, arrowIndex);
+	const returnValueText = sourceCode.getText(returnValue);
+	const implicitReturnText = isObjectLiteral(returnValue)
+		? `(${returnValueText})`
+		: returnValueText;
+
+	return `${parameters} => ${implicitReturnText}`;
+}
+
 function buildIsolatedArrowFunction(
 	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
 	sourceCode: TSESLint.SourceCode,
@@ -197,16 +217,19 @@ function calcPrettierImplicitLength(
 ): { isMultiline: boolean; length: number } {
 	const { sourceCode } = context;
 
-	// For method chains, when evaluating existing implicit returns,
-	// we want to measure just the arrow function itself, not the entire chain context
-	const isExistingImplicit =
-		returnValue === node.body && node.body.type !== AST_NODE_TYPES.BlockStatement;
-	const isInMethodChain = isPartOfMethodChain(node);
-
-	if (isInMethodChain && isExistingImplicit) {
-		return calcMethodChainImplicitLength(returnValue, context, node, prettierOptions);
+	// Handle method chain specific cases
+	const methodChainResult = calculateMethodChainLength({
+		context,
+		node,
+		prettierOptions,
+		returnValue,
+		sourceCode,
+	});
+	if (methodChainResult) {
+		return methodChainResult;
 	}
 
+	// Standard prettier-based length calculation
 	const arrowFunctionCode = buildPrettierCode(returnValue, sourceCode, node);
 	if (arrowFunctionCode === null) {
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
@@ -217,9 +240,6 @@ function calcPrettierImplicitLength(
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
 	}
 
-	// For standalone declarations, we want to measure just the arrow function
-	// length since the question is "if we convert this to implicit return, how
-	// long would it be?" not "how long is the entire declaration?"
 	return {
 		isMultiline: prettierResult.isMultiline,
 		length: prettierResult.lineLength,
@@ -261,6 +281,60 @@ function calculateImplicitLength(
 	return calculateDirectImplicitLength(node, sourceCode, returnValue);
 }
 
+function calculateMethodChainLength({
+	context,
+	node,
+	prettierOptions,
+	returnValue,
+	sourceCode,
+}: {
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>;
+	node: TSESTree.ArrowFunctionExpression;
+	prettierOptions: PrettierOptions;
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression;
+	sourceCode: TSESLint.SourceCode;
+}): null | { isMultiline: boolean; length: number } {
+	const isExistingImplicit =
+		returnValue === node.body && node.body.type !== AST_NODE_TYPES.BlockStatement;
+	const isInMethodChain = isPartOfMethodChain(node);
+
+	if (isInMethodChain && isExistingImplicit) {
+		return calcMethodChainImplicitLength(returnValue, context, node, prettierOptions);
+	}
+
+	const isEvaluatingBlockForConversion = node.body.type === AST_NODE_TYPES.BlockStatement;
+	if (isInMethodChain && isEvaluatingBlockForConversion) {
+		const methodChainCheck = checkMethodChainConversion(node, returnValue, sourceCode, context);
+		if (methodChainCheck) {
+			return methodChainCheck;
+		}
+	}
+
+	return null;
+}
+
+function calculateMethodChainLineLength(
+	node: TSESTree.ArrowFunctionExpression,
+	convertedArrowFunction: string,
+	sourceCode: TSESLint.SourceCode,
+): null | number {
+	const arrowToken = getArrowToken(node, sourceCode);
+	if (!arrowToken) {
+		return null;
+	}
+
+	const lineStart = sourceCode.getIndexFromLoc({
+		column: 0,
+		line: arrowToken.loc.start.line,
+	});
+	if (typeof lineStart !== "number") {
+		return null;
+	}
+
+	const beforeArrow = sourceCode.text.substring(lineStart, arrowToken.range[0]);
+	return beforeArrow.length + convertedArrowFunction.length;
+}
+
 function checkForceExplicitForObject(
 	body: TSESTree.ArrowFunctionExpression["body"],
 	options: {
@@ -277,6 +351,38 @@ function checkForceExplicitForObject(
 	}
 
 	return false;
+}
+
+function checkMethodChainConversion(
+	node: TSESTree.ArrowFunctionExpression,
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
+	sourceCode: TSESLint.SourceCode,
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
+): null | { isMultiline: boolean; length: number } {
+	const { maxLen } = getRuleOptions(context);
+
+	const convertedArrowFunction = buildConvertedArrowFunction(node, returnValue, sourceCode);
+	if (convertedArrowFunction === null) {
+		return null;
+	}
+
+	const estimatedLineLength = calculateMethodChainLineLength(
+		node,
+		convertedArrowFunction,
+		sourceCode,
+	);
+	if (estimatedLineLength === null) {
+		return null;
+	}
+
+	if (estimatedLineLength > maxLen) {
+		return {
+			isMultiline: false,
+			length: estimatedLineLength,
+		};
+	}
+
+	return null;
 }
 
 function commentsExistBetweenTokens(
