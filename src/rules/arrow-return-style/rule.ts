@@ -128,6 +128,14 @@ function buildConvertedArrowFunction(
 	return `${parameters} => ${implicitReturnText}`;
 }
 
+function buildConvertedForReturn(
+	node: TSESTree.ArrowFunctionExpression,
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
+	sourceCode: TSESLint.SourceCode,
+): null | string {
+	return buildConvertedArrowFunction(node, returnValue, sourceCode);
+}
+
 function buildIsolatedArrowFunction(
 	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
 	sourceCode: TSESLint.SourceCode,
@@ -215,35 +223,23 @@ function calcPrettierImplicitLength(
 	node: TSESTree.ArrowFunctionExpression,
 	prettierOptions: PrettierOptions,
 ): { isMultiline: boolean; length: number } {
-	const { sourceCode } = context;
-
-	// Handle method chain specific cases
 	const methodChainResult = calculateMethodChainLength({
 		context,
 		node,
 		prettierOptions,
 		returnValue,
-		sourceCode,
+		sourceCode: context.sourceCode,
 	});
 	if (methodChainResult) {
 		return methodChainResult;
 	}
 
-	// Standard prettier-based length calculation
-	const arrowFunctionCode = buildPrettierCode(returnValue, sourceCode, node);
-	if (arrowFunctionCode === null) {
-		return createPrettierFallbackResult(returnValue, sourceCode, node);
+	const returnStatementResult = returnStatementCalculation(returnValue, context, node);
+	if (returnStatementResult) {
+		return returnStatementResult;
 	}
 
-	const prettierResult = formatWithPrettier(arrowFunctionCode, context, prettierOptions);
-	if (prettierResult.error !== undefined) {
-		return createPrettierFallbackResult(returnValue, sourceCode, node);
-	}
-
-	return {
-		isMultiline: prettierResult.isMultiline,
-		length: prettierResult.lineLength,
-	};
+	return performStandardCalculation(returnValue, context, node, prettierOptions);
 }
 
 function calculateDirectImplicitLength(
@@ -273,12 +269,41 @@ function calculateDirectImplicitLength(
 	return lastLineBeforeArrow.length + 1 + estimatedSingleLineText.length;
 }
 
+function calculateFullLength(
+	lineStart: number,
+	returnToken: TSESTree.Token,
+	convertedArrowFunction: string,
+	sourceCode: TSESLint.SourceCode,
+): number {
+	const beforeReturn = sourceCode.text.substring(lineStart, returnToken.range[0]);
+	const returnKeyword = sourceCode.getText(returnToken);
+	const spaceAfterReturn = " ";
+	return (
+		beforeReturn.length +
+		returnKeyword.length +
+		spaceAfterReturn.length +
+		convertedArrowFunction.length
+	);
+}
+
 function calculateImplicitLength(
 	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
 	sourceCode: TSESLint.SourceCode,
 	node: TSESTree.ArrowFunctionExpression,
 ): number {
 	return calculateDirectImplicitLength(node, sourceCode, returnValue);
+}
+
+function calculateLineStart(
+	returnToken: TSESTree.Token,
+	sourceCode: TSESLint.SourceCode,
+): null | number {
+	const lineStart = sourceCode.getIndexFromLoc({
+		column: 0,
+		line: returnToken.loc.start.line,
+	});
+
+	return typeof lineStart === "number" ? lineStart : null;
 }
 
 function calculateMethodChainLength({
@@ -383,6 +408,39 @@ function checkMethodChainConversion(
 	}
 
 	return null;
+}
+
+function checkReturnStatementLength(
+	node: TSESTree.ArrowFunctionExpression,
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
+	sourceCode: TSESLint.SourceCode,
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
+): null | { isMultiline: boolean; length: number } {
+	const { maxLen } = getRuleOptions(context);
+
+	const convertedArrowFunction = buildConvertedForReturn(node, returnValue, sourceCode);
+	if (convertedArrowFunction === null) {
+		return null;
+	}
+
+	const returnToken = sourceCode.getFirstToken(node.parent);
+	if (!returnToken) {
+		return null;
+	}
+
+	const lineStart = calculateLineStart(returnToken, sourceCode);
+	if (lineStart === null) {
+		return null;
+	}
+
+	const fullLineLength = calculateFullLength(
+		lineStart,
+		returnToken,
+		convertedArrowFunction,
+		sourceCode,
+	);
+
+	return validateReturnConversion(fullLineLength, maxLen);
 }
 
 function commentsExistBetweenTokens(
@@ -986,6 +1044,29 @@ function normalizeParentheses(
 	return bodyText;
 }
 
+function performStandardCalculation(
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
+	node: TSESTree.ArrowFunctionExpression,
+	prettierOptions: PrettierOptions,
+): { isMultiline: boolean; length: number } {
+	const { sourceCode } = context;
+	const arrowFunctionCode = buildPrettierCode(returnValue, sourceCode, node);
+	if (arrowFunctionCode === null) {
+		return createPrettierFallbackResult(returnValue, sourceCode, node);
+	}
+
+	const prettierResult = formatWithPrettier(arrowFunctionCode, context, prettierOptions);
+	if (prettierResult.error !== undefined) {
+		return createPrettierFallbackResult(returnValue, sourceCode, node);
+	}
+
+	return {
+		isMultiline: prettierResult.isMultiline,
+		length: prettierResult.lineLength,
+	};
+}
+
 function processImplicitReturn(
 	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
 	node: TSESTree.ArrowFunctionExpression,
@@ -1054,6 +1135,20 @@ function reportExplicitReturn(
 		messageId: getReportMessageId(body, isObjectArrayRule),
 		node,
 	});
+}
+
+function returnStatementCalculation(
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
+	node: TSESTree.ArrowFunctionExpression,
+): null | { isMultiline: boolean; length: number } {
+	const { sourceCode } = context;
+
+	if (node.parent.type === AST_NODE_TYPES.ReturnStatement) {
+		return checkReturnStatementLength(node, returnValue, sourceCode, context);
+	}
+
+	return null;
 }
 
 function shouldForceArrayExplicit(
@@ -1208,6 +1303,20 @@ function validateImplicitReturnTokens(tokens: {
 } {
 	const { closingBrace, firstToken, lastToken, openingBrace } = tokens;
 	return !!(openingBrace && closingBrace && firstToken && lastToken);
+}
+
+function validateReturnConversion(
+	fullLineLength: number,
+	maxLength: number,
+): null | { isMultiline: boolean; length: number } {
+	if (fullLineLength > maxLength) {
+		return {
+			isMultiline: false,
+			length: fullLineLength,
+		};
+	}
+
+	return null;
 }
 
 const defaultOptions = [

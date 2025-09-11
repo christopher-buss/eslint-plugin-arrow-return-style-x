@@ -744,6 +744,22 @@ const invalid: Array<InvalidTestCase> = [
 		options: [{ maxLen: 100, usePrettier: true }],
 		output: "items.sort((a, b) => a.name.localeCompare(b.name))",
 	},
+	{
+		code: unindent`
+			function getPlayerInventory(store: PlayerStore) {
+				return (playerId: number) => store.load(playerId).then((data) => data.inventory);
+			}
+		`,
+		errors: [{ messageId: explicitMessageId }],
+		options: [{ maxLen: 80, usePrettier: { printWidth: 80 } }],
+		output: unindent`
+			function getPlayerInventory(store: PlayerStore) {
+				return (playerId: number) => {
+					return store.load(playerId).then((data) => data.inventory);
+				};
+			}
+		`,
+	},
 ];
 
 /**
