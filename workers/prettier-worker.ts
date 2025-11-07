@@ -23,6 +23,13 @@ interface FormatResult {
 	isMultiline: boolean;
 	lineLength: number;
 	success: true;
+	// Enhanced metrics
+	allLineLengths: number[];
+	maxLineLength: number;
+	avgLineLength: number;
+	totalLines: number;
+	hasComments: boolean;
+	parser?: string;
 }
 
 interface ResolveConfigRequest {
@@ -62,15 +69,36 @@ async function handleFormatRequest(request: FormatRequest): Promise<FormatResult
 		filepath: request.filePath,
 	});
 
-	const lines = formatted.trim().split("\n");
+	const trimmedFormatted = formatted.trim();
+	const lines = trimmedFormatted.split("\n");
 	const isMultiline = lines.length > 1;
 	const lineLength = lines[0]?.length ?? 0;
 
+	// Calculate comprehensive metrics
+	const allLineLengths = lines.map((line: string) => line.length);
+	const maxLineLength = Math.max(...allLineLengths, 0);
+	const avgLineLength = allLineLengths.length > 0
+		? allLineLengths.reduce((sum: number, len: number) => sum + len, 0) / allLineLengths.length
+		: 0;
+	const totalLines = lines.length;
+
+	// Detect comments in formatted output
+	const hasComments = /\/\/|\/\*|\*\/|<!--/.test(trimmedFormatted);
+
+	// Extract parser from config
+	const parser = config?.parser as string | undefined;
+
 	return {
-		formatted: formatted.trim(),
+		formatted: trimmedFormatted,
 		isMultiline,
 		lineLength,
 		success: true,
+		allLineLengths,
+		maxLineLength,
+		avgLineLength,
+		totalLines,
+		hasComments,
+		parser,
 	};
 }
 

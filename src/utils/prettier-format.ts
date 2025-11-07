@@ -27,15 +27,29 @@ interface FormatResult {
 	isMultiline: boolean;
 	lineLength: number;
 	success: true;
+	// Enhanced metrics
+	allLineLengths: number[];
+	maxLineLength: number;
+	avgLineLength: number;
+	totalLines: number;
+	hasComments: boolean;
+	parser?: string;
 }
 
-type PrettierConfig = boolean | null | PrettierOptions | undefined;
+export type PrettierConfig = boolean | null | PrettierOptions | undefined;
 
-interface PrettierFormatResult {
+export interface PrettierFormatResult {
 	error?: string;
 	formatted: string;
 	isMultiline: boolean;
 	lineLength: number;
+	// Enhanced metrics (optional for backward compatibility)
+	allLineLengths?: number[];
+	maxLineLength?: number;
+	avgLineLength?: number;
+	totalLines?: number;
+	hasComments?: boolean;
+	parser?: string;
 }
 
 interface ResolveConfigRequest {
@@ -203,6 +217,13 @@ function processWorkerResult(workerResult: WorkerResult, code: string): Prettier
 			formatted: workerResult.formatted,
 			isMultiline: workerResult.isMultiline,
 			lineLength: workerResult.lineLength,
+			// Pass through enhanced metrics
+			allLineLengths: workerResult.allLineLengths,
+			maxLineLength: workerResult.maxLineLength,
+			avgLineLength: workerResult.avgLineLength,
+			totalLines: workerResult.totalLines,
+			hasComments: workerResult.hasComments,
+			parser: workerResult.parser,
 		};
 	}
 
