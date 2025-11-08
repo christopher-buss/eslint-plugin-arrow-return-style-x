@@ -531,8 +531,9 @@ const invalid: Array<InvalidTestCase> = [
 	},
 
 	// Test case to expose length calculation inconsistency
-	// Target the boundary between calculateImplicitLength vs isMaxLength vs line length
-	// This creates a scenario where different calculation methods might disagree
+	// Target the boundary between calculateImplicitLength vs isMaxLength vs line
+	// length This creates a scenario where different calculation methods might
+	// disagree
 	{
 		code: "const inconsistencyTest = () => { return obj.prop + other.value; }",
 		errors: [{ messageId: implicitMessageId }],

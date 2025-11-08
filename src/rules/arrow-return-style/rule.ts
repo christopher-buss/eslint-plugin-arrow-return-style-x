@@ -95,7 +95,8 @@ function buildCallExpressionContext({
 	sourceCode: TSESLint.SourceCode;
 }): string {
 	// For simple call expressions, just use the call expression itself
-	// For more complex cases like variable declarations, walk up to get the full context
+	// For more complex cases like variable declarations, walk up to get the full
+	// context
 	const contextNode =
 		callExpression.parent.type === AST_NODE_TYPES.VariableDeclarator
 			? callExpression.parent
@@ -1015,9 +1016,10 @@ function isPartOfMethodChain(node: TSESTree.ArrowFunctionExpression): boolean {
 	const { parent } = node;
 
 	if (parent.type === AST_NODE_TYPES.CallExpression) {
-		// Check if the call expression itself is a method call (has a MemberExpression as callee)
-		// This identifies method chains like .map(), .sort(), .filter() etc.
-		// This excludes function calls like useCallback(), setTimeout(), etc.
+		// Check if the call expression itself is a method call (has a
+		// MemberExpression as callee) This identifies method chains like .map(),
+		// .sort(), .filter() etc. This excludes function calls like
+		// useCallback(), setTimeout(), etc.
 		return parent.callee.type === AST_NODE_TYPES.MemberExpression;
 	}
 
@@ -1164,7 +1166,8 @@ function shouldForceArrayExplicit(
 			return true;
 		}
 		case ObjectReturnStyle.ComplexExplicit: {
-			// For arrays, we ignore element count and only check complexity patterns
+			// For arrays, we ignore element count and only check complexity
+			// patterns
 			return isComplexArray(node);
 		}
 		case ObjectReturnStyle.Off: {

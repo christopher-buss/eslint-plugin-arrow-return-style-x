@@ -13,7 +13,7 @@ export default isentinel(
 		type: "package",
 	},
 	{
-		ignores: ["fixtures"],
+		ignores: ["fixtures", "PRETTIER_*.md"],
 	},
 	{
 		files: [GLOB_TS],
@@ -35,6 +35,7 @@ export default isentinel(
 		rules: {
 			"arrow-style/arrow-return-style": "off",
 			"arrow-style/no-export-default-arrow": "off",
+			"func-style": "off",
 		},
 	},
 );
