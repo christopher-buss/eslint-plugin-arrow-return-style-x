@@ -19,17 +19,17 @@ interface FormatRequest {
 }
 
 interface FormatResult {
+	/** Enhanced metrics. */
+	allLineLengths: Array<number>;
+	avgLineLength: number;
 	formatted: string;
+	hasComments: boolean;
 	isMultiline: boolean;
 	lineLength: number;
-	success: true;
-	// Enhanced metrics
-	allLineLengths: number[];
 	maxLineLength: number;
-	avgLineLength: number;
-	totalLines: number;
-	hasComments: boolean;
 	parser?: string;
+	success: true;
+	totalLines: number;
 }
 
 interface ResolveConfigRequest {
@@ -44,6 +44,47 @@ type WorkerResult = ConfigResult | ErrorResult | FormatResult;
 let prettier: typeof import("prettier") | undefined;
 let prettierLoadAttempted = false;
 
+const DEFAULT_FILE_PATH = "package.json";
+const PRETTIER_NOT_LOADED_ERROR = "Prettier not loaded";
+
+/**
+ * Calculates comprehensive line metrics from formatted code lines.
+ *
+ * @param lines - Array of code lines.
+ * @returns Metrics object with line length statistics.
+ */
+function calculateLineMetrics(lines: Array<string>): {
+	allLineLengths: Array<number>;
+	avgLineLength: number;
+	maxLineLength: number;
+	totalLines: number;
+} {
+	const allLineLengths = lines.map((line: string) => line.length);
+	const maxLineLength = Math.max(...allLineLengths, 0);
+	const avgLineLength =
+		allLineLengths.length > 0
+			? allLineLengths.reduce((sum: number, length: number) => sum + length, 0) /
+				allLineLengths.length
+			: 0;
+
+	return {
+		allLineLengths,
+		avgLineLength,
+		maxLineLength,
+		totalLines: lines.length,
+	};
+}
+
+/**
+ * Detects if code contains comments.
+ *
+ * @param code - The code to check.
+ * @returns True if comments are detected.
+ */
+function detectComments(code: string): boolean {
+	return /\/\/|\/\*|\*\/|<!--/.test(code);
+}
+
 /**
  * Handles format request type.
  *
@@ -52,17 +93,10 @@ let prettierLoadAttempted = false;
  */
 async function handleFormatRequest(request: FormatRequest): Promise<FormatResult> {
 	if (!prettier) {
-		throw new Error("Prettier not loaded");
+		throw new Error(PRETTIER_NOT_LOADED_ERROR);
 	}
 
-	let config = await prettier.resolveConfig(request.filePath ?? "package.json", {
-		editorconfig: true,
-	});
-
-	// Override with provided config if available
-	if (request.configOverride) {
-		config = { ...config, ...request.configOverride };
-	}
+	const config = await resolveConfig(request.filePath, request.configOverride);
 
 	const formatted = await prettier.format(request.code, {
 		...config,
@@ -71,34 +105,16 @@ async function handleFormatRequest(request: FormatRequest): Promise<FormatResult
 
 	const trimmedFormatted = formatted.trim();
 	const lines = trimmedFormatted.split("\n");
-	const isMultiline = lines.length > 1;
-	const lineLength = lines[0]?.length ?? 0;
-
-	// Calculate comprehensive metrics
-	const allLineLengths = lines.map((line: string) => line.length);
-	const maxLineLength = Math.max(...allLineLengths, 0);
-	const avgLineLength = allLineLengths.length > 0
-		? allLineLengths.reduce((sum: number, len: number) => sum + len, 0) / allLineLengths.length
-		: 0;
-	const totalLines = lines.length;
-
-	// Detect comments in formatted output
-	const hasComments = /\/\/|\/\*|\*\/|<!--/.test(trimmedFormatted);
-
-	// Extract parser from config
-	const parser = config?.parser as string | undefined;
+	const metrics = calculateLineMetrics(lines);
 
 	return {
+		...metrics,
 		formatted: trimmedFormatted,
-		isMultiline,
-		lineLength,
+		hasComments: detectComments(trimmedFormatted),
+		isMultiline: lines.length > 1,
+		lineLength: lines[0]?.length ?? 0,
+		parser: config?.parser as string | undefined,
 		success: true,
-		allLineLengths,
-		maxLineLength,
-		avgLineLength,
-		totalLines,
-		hasComments,
-		parser,
 	};
 }
 
@@ -110,7 +126,7 @@ async function handleFormatRequest(request: FormatRequest): Promise<FormatResult
  */
 async function handleResolveConfigRequest(request: ResolveConfigRequest): Promise<ConfigResult> {
 	if (!prettier) {
-		throw new Error("Prettier not loaded");
+		throw new Error(PRETTIER_NOT_LOADED_ERROR);
 	}
 
 	const config = await prettier.resolveConfig(request.filePath ?? "package.json", {
@@ -142,6 +158,28 @@ async function loadPrettier(): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Resolves and merges prettier configuration.
+ *
+ * @param filePath - Optional file path for config resolution.
+ * @param configOverride - Optional config overrides.
+ * @returns Promise resolving to merged config.
+ */
+async function resolveConfig(
+	filePath: string | undefined,
+	configOverride: PrettierOptions | undefined,
+): Promise<null | PrettierOptions> {
+	if (!prettier) {
+		throw new Error(PRETTIER_NOT_LOADED_ERROR);
+	}
+
+	const config = await prettier.resolveConfig(filePath ?? DEFAULT_FILE_PATH, {
+		editorconfig: true,
+	});
+
+	return configOverride ? { ...config, ...configOverride } : config;
 }
 
 runAsWorker(async (request: WorkerRequest): Promise<WorkerResult> => {
