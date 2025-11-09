@@ -1,4 +1,3 @@
-/* eslint-disable ts/no-unnecessary-condition, ts/strict-boolean-expressions -- Type guards needed for runtime safety despite TypeScript's narrowing */
 import { AST_NODE_TYPES, type TSESLint, type TSESTree } from "@typescript-eslint/utils";
 
 import type { Options as PrettierOptions } from "prettier";
@@ -51,21 +50,28 @@ interface ScopeExtractionResult {
 /**
  * Extracts and formats arrow function code in a specific scope/context.
  *
- * @param node - The arrow function expression node.
- * @param scope - The scope/context to format in.
- * @param sourceCode - The ESLint source code object.
- * @param context - The ESLint rule context.
- * @param options - Extraction options (implicit/explicit, prettier config).
+ * @param args - Parameters object.
+ * @param args.node - The arrow function expression node.
+ * @param args.scope - The scope/context to format in.
+ * @param args.sourceCode - The ESLint source code object.
+ * @param args.context - The ESLint rule context.
+ * @param args.options - Extraction options (implicit/explicit, prettier
+ *   config).
  * @returns Extraction result with formatted code and metrics.
  */
-// eslint-disable-next-line better-max-params/better-max-params -- Public API function, changing would be breaking
-export function extractAtScope(
-	node: TSESTree.ArrowFunctionExpression,
-	scope: FormattingScope,
-	sourceCode: TSESLint.SourceCode,
-	context: TSESLint.RuleContext<any, any>,
-	options: ScopeExtractionOptions,
-): null | ScopeExtractionResult {
+export function extractAtScope({
+	context,
+	node,
+	options,
+	scope,
+	sourceCode,
+}: {
+	context: TSESLint.RuleContext<any, any>;
+	node: TSESTree.ArrowFunctionExpression;
+	options: ScopeExtractionOptions;
+	scope: FormattingScope;
+	sourceCode: TSESLint.SourceCode;
+}): null | ScopeExtractionResult {
 	const code = buildCodeForScope(node, scope, sourceCode, options);
 
 	if (code === null) {
@@ -84,7 +90,6 @@ export function extractAtScope(
 function buildBlockBody(
 	node: TSESTree.ArrowFunctionExpression,
 	sourceCode: TSESLint.SourceCode,
-	_options: ScopeExtractionOptions,
 ): null | string {
 	if (node.body.type !== AST_NODE_TYPES.BlockStatement) {
 		// Already an expression body
@@ -122,7 +127,7 @@ function buildCodeForScope(
 ): null | string {
 	switch (scope) {
 		case FormattingScope.BlockBody: {
-			return buildBlockBody(node, sourceCode, options);
+			return buildBlockBody(node, sourceCode);
 		}
 		case FormattingScope.InlineContext: {
 			return buildInlineContext(node, sourceCode, options);
@@ -156,7 +161,7 @@ function buildInlineContext(
 ): null | string {
 	const { parent } = node;
 
-	if (!parent || parent.type !== AST_NODE_TYPES.CallExpression) {
+	if (parent.type !== AST_NODE_TYPES.CallExpression) {
 		return buildSnippet(node, sourceCode, options);
 	}
 
@@ -177,9 +182,7 @@ function buildInlineContext(
 	// Check if the call expression is part of a variable declaration to get full
 	// context
 	const contextNode =
-		parent.parent && parent.parent.type === AST_NODE_TYPES.VariableDeclarator
-			? parent.parent
-			: parent;
+		parent.parent.type === AST_NODE_TYPES.VariableDeclarator ? parent.parent : parent;
 
 	const contextText = sourceCode.getText(contextNode);
 	const arrowFunctionText = sourceCode.getText(node);
@@ -269,9 +272,6 @@ function buildStatement(
 	options: ScopeExtractionOptions,
 ): null | string {
 	const { parent } = node;
-	if (!parent) {
-		return buildSnippet(node, sourceCode, options);
-	}
 
 	// Variable declaration: const fn = () => ...
 	if (parent.type === AST_NODE_TYPES.VariableDeclarator && parent.init === node) {
@@ -314,10 +314,6 @@ function buildVariableDeclaration(
 	options: ScopeExtractionOptions,
 ): null | string {
 	const grandparent = parent.parent;
-	if (!grandparent || grandparent.type !== AST_NODE_TYPES.VariableDeclaration) {
-		return null;
-	}
-
 	const declarationKeyword = sourceCode.getFirstToken(grandparent)?.value ?? "const";
 	const variableName = sourceCode.getText(parent.id);
 	const body = getBodyForFormat(node, sourceCode, options);

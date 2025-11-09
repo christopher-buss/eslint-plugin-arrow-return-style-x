@@ -108,67 +108,74 @@ export function getDecisionSummary(matrix: FormattingDecisionMatrix): string {
  * Validates an arrow function by formatting it in all possible paths. This
  * systematic approach replaces ad-hoc single-path checks.
  *
- * @param node - The arrow function expression node.
- * @param sourceCode - The ESLint source code object.
- * @param context - The ESLint rule context.
- * @param maxLength - Maximum line length allowed.
- * @param prettierOptions - Prettier configuration options.
+ * @param args - Parameters object.
+ * @param args.node - The arrow function expression node.
+ * @param args.sourceCode - The ESLint source code object.
+ * @param args.context - The ESLint rule context.
+ * @param args.maxLength - Maximum line length allowed.
+ * @param args.prettierOptions - Prettier configuration options.
  * @returns Complete decision matrix with all formatting paths evaluated.
  */
-// eslint-disable-next-line better-max-params/better-max-params, max-lines-per-function, @cspell/spellchecker -- Public API function
-export function prevalidateFormattingPaths(
-	node: TSESTree.ArrowFunctionExpression,
-	sourceCode: TSESLint.SourceCode,
-	context: TSESLint.RuleContext<any, any>,
-	maxLength: number,
-	prettierOptions?: PrettierOptions,
-): FormattingDecisionMatrix {
+// eslint-disable-next-line max-lines-per-function -- Centralized logic for formatting validation
+export function preValidateFormattingPaths({
+	context,
+	maxLength,
+	node,
+	prettierOptions,
+	sourceCode,
+}: {
+	context: TSESLint.RuleContext<any, any>;
+	maxLength: number;
+	node: TSESTree.ArrowFunctionExpression;
+	prettierOptions?: PrettierOptions;
+	sourceCode: TSESLint.SourceCode;
+}): FormattingDecisionMatrix {
 	// Format implicit return in different scopes
-	const implicitSnippet = formatPath(
-		node,
-		FormattingScope.Snippet,
-		sourceCode,
+	const implicitSnippet = formatPath({
 		context,
-		true,
+		implicit: true,
+		node,
 		prettierOptions,
-	);
+		scope: FormattingScope.Snippet,
+		sourceCode,
+	});
 
-	const implicitContext = formatPath(
-		node,
-		FormattingScope.InlineContext,
-		sourceCode,
+	const implicitContext = formatPath({
 		context,
-		true,
+		implicit: true,
+		node,
 		prettierOptions,
-	);
+		scope: FormattingScope.InlineContext,
+		sourceCode,
+	});
 
 	// Format explicit return in different scopes
-	const explicitSnippet = formatPath(
-		node,
-		FormattingScope.Snippet,
-		sourceCode,
+	const explicitSnippet = formatPath({
 		context,
-		false,
+		implicit: false,
+		node,
 		prettierOptions,
-	);
+		scope: FormattingScope.Snippet,
+		sourceCode,
+	});
 
-	const explicitContext = formatPath(
-		node,
-		FormattingScope.InlineContext,
-		sourceCode,
+	const explicitContext = formatPath({
 		context,
-		false,
+		implicit: false,
+		node,
 		prettierOptions,
-	);
+		scope: FormattingScope.InlineContext,
+		sourceCode,
+	});
 
 	// Build decision matrix by comparing all paths
-	const decisions = makeDecisions(
-		implicitSnippet,
-		implicitContext,
-		explicitSnippet,
+	const decisions = makeDecisions({
 		explicitContext,
+		explicitSnippet,
+		implicitContext,
+		implicitSnippet,
 		maxLength,
-	);
+	});
 
 	return {
 		config: {
@@ -248,27 +255,41 @@ function fitsOnLine(result: PrettierFormatResult, maxLength: number): boolean {
 /**
  * Formats code in a specific path (scope + implicit/explicit).
  *
- * @param node - The arrow function expression node.
- * @param scope - The formatting scope to use.
- * @param sourceCode - The ESLint source code object.
- * @param context - The ESLint rule context.
- * @param implicit - Whether to format as implicit return.
- * @param prettierOptions - Prettier configuration options.
+ * @param args - Parameters object.
+ * @param args.node - The arrow function expression node.
+ * @param args.scope - The formatting scope to use.
+ * @param args.sourceCode - The ESLint source code object.
+ * @param args.context - The ESLint rule context.
+ * @param args.implicit - Whether to format as implicit return.
+ * @param args.prettierOptions - Prettier configuration options.
  * @returns Formatting result or null if unable to format.
  */
-// eslint-disable-next-line better-max-params/better-max-params -- Internal helper, all params needed for context
-function formatPath(
-	node: TSESTree.ArrowFunctionExpression,
-	scope: FormattingScope,
-	sourceCode: TSESLint.SourceCode,
-	context: TSESLint.RuleContext<any, any>,
-	implicit: boolean,
-	prettierOptions?: PrettierOptions,
-): FormattingPathResult | null {
+// eslint-disable-next-line max-lines-per-function -- Centralized logic for formatting a specific path
+function formatPath({
+	context,
+	implicit,
+	node,
+	prettierOptions,
+	scope,
+	sourceCode,
+}: {
+	context: TSESLint.RuleContext<any, any>;
+	implicit: boolean;
+	node: TSESTree.ArrowFunctionExpression;
+	prettierOptions?: PrettierOptions;
+	scope: FormattingScope;
+	sourceCode: TSESLint.SourceCode;
+}): FormattingPathResult | null {
 	try {
-		const extraction = extractAtScope(node, scope, sourceCode, context, {
-			implicit,
-			prettierOptions,
+		const extraction = extractAtScope({
+			context,
+			node,
+			options: {
+				implicit,
+				prettierOptions,
+			},
+			scope,
+			sourceCode,
 		});
 
 		if (extraction === null) {
@@ -290,21 +311,28 @@ function formatPath(
 /**
  * Makes systematic decisions by comparing all formatting paths.
  *
- * @param implicitSnippet - Implicit return in snippet scope.
- * @param implicitContext - Implicit return in inline context.
- * @param explicitSnippet - Explicit return in snippet scope.
- * @param explicitContext - Explicit return in inline context.
- * @param maxLength - Maximum line length allowed.
+ * @param args - Parameters object.
+ * @param args.explicitSnippet - Explicit return in snippet scope.
+ * @param args.implicitContext - Implicit return in inline context.
+ * @param args.implicitSnippet - Implicit return in snippet scope.
+ * @param args.explicitContext - Explicit return in inline context.
+ * @param args.maxLength - Maximum line length allowed.
  * @returns Decision flags based on comparison of all paths.
  */
-// eslint-disable-next-line better-max-params/better-max-params, max-lines-per-function -- Comparing 4 paths requires all params
-function makeDecisions(
-	implicitSnippet: FormattingPathResult | null,
-	implicitContext: FormattingPathResult | null,
-	explicitSnippet: FormattingPathResult | null,
-	explicitContext: FormattingPathResult | null,
-	maxLength: number,
-): FormattingDecisionMatrix["decisions"] {
+// eslint-disable-next-line max-lines-per-function -- Centralized logic for making formatting decisions
+function makeDecisions({
+	explicitContext,
+	explicitSnippet,
+	implicitContext,
+	implicitSnippet,
+	maxLength,
+}: {
+	explicitContext: FormattingPathResult | null;
+	explicitSnippet: FormattingPathResult | null;
+	implicitContext: FormattingPathResult | null;
+	implicitSnippet: FormattingPathResult | null;
+	maxLength: number;
+}): FormattingDecisionMatrix["decisions"] {
 	// Check for errors
 	const hasErrors =
 		Boolean(implicitSnippet?.hasError) ||

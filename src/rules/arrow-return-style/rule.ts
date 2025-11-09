@@ -8,7 +8,7 @@ import { isPrettierEnabled, shouldUsePrettier } from "../../utils/prettier-forma
 import { extractAtScope, FormattingScope } from "../../utils/prettier-scope";
 import {
 	type FormattingDecisionMatrix,
-	prevalidateFormattingPaths,
+	preValidateFormattingPaths,
 } from "../../utils/prettier-validator";
 
 const indentCache = new WeakMap<TSESLint.SourceCode, string>();
@@ -86,7 +86,13 @@ function _calcPrettierLengthEnhanced(
 	const { maxLen } = getRuleOptions(context);
 	const { sourceCode } = context;
 
-	const matrix = prevalidateFormattingPaths(node, sourceCode, context, maxLen, prettierOptions);
+	const matrix = preValidateFormattingPaths({
+		context,
+		maxLength: maxLen,
+		node,
+		prettierOptions,
+		sourceCode,
+	});
 
 	/**
 	 * Use the systematic decision from the matrix. Falls back to snippet scope
@@ -159,9 +165,15 @@ function calcMethodChainImplicitLength(
 	const { sourceCode } = context;
 
 	// Use extractAtScope to build and format the isolated arrow function
-	const extraction = extractAtScope(node, FormattingScope.Snippet, sourceCode, context, {
-		implicit: true,
-		prettierOptions,
+	const extraction = extractAtScope({
+		context,
+		node,
+		options: {
+			implicit: true,
+			prettierOptions,
+		},
+		scope: FormattingScope.Snippet,
+		sourceCode,
 	});
 
 	if (extraction === null || extraction.result.error !== undefined) {
@@ -957,9 +969,15 @@ function performStandardCalculation(
 
 	// Use extractAtScope to build and format the arrow function in the
 	// appropriate context
-	const extraction = extractAtScope(node, scope, sourceCode, context, {
-		implicit: true,
-		prettierOptions,
+	const extraction = extractAtScope({
+		context,
+		node,
+		options: {
+			implicit: true,
+			prettierOptions,
+		},
+		scope,
+		sourceCode,
 	});
 
 	if (extraction === null || extraction.result.error !== undefined) {
