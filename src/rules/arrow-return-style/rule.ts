@@ -168,9 +168,13 @@ function calcMethodChainImplicitLength(
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
 	}
 
+	// For multiline results, use maxLineLength (longest line) instead of
+	// lineLength (first line)
+	const effectiveLength = extraction.result.maxLineLength ?? extraction.result.lineLength;
+
 	return {
 		isMultiline: extraction.result.isMultiline,
-		length: extraction.result.lineLength,
+		length: effectiveLength,
 	};
 }
 
@@ -962,9 +966,13 @@ function performStandardCalculation(
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
 	}
 
+	// For multiline results, use maxLineLength (longest line) instead of
+	// lineLength (first line)
+	const effectiveLength = extraction.result.maxLineLength ?? extraction.result.lineLength;
+
 	return {
 		isMultiline: extraction.result.isMultiline,
-		length: extraction.result.lineLength,
+		length: effectiveLength,
 	};
 }
 

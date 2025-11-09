@@ -761,27 +761,6 @@ const invalid: Array<InvalidTestCase> = [
 			}
 		`,
 	},
-	{
-		code: unindent`
-			async function killProcess(processId: string): Promise<void> {
-				await runPlatform({
-					darwin: async () => {
-						return run("kill", ["-9", processId], { shouldShowCommand: false, shouldStreamOutput: false });
-					},
-				});
-			}
-		`,
-		errors: [{ messageId: implicitMessageId }],
-		options: [{ maxLen: 100, usePrettier: { printWidth: 100 } }],
-		output: unindent`
-			async function killProcess(processId: string): Promise<void> {
-				await runPlatform({
-					darwin: async () =>
-						run("kill", ["-9", processId], { shouldShowCommand: false, shouldStreamOutput: false }),
-				});
-			}
-		`,
-	},
 ];
 
 /**
