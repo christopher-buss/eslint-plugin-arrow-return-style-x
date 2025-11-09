@@ -4,12 +4,12 @@ import detectIndent from "detect-indent";
 import type { Options as PrettierOptions } from "prettier";
 
 import { createEslintRule } from "../../util";
-import {
-	formatWithPrettier,
-	isPrettierEnabled,
-	shouldUsePrettier,
-} from "../../utils/prettier-format";
+import { isPrettierEnabled, shouldUsePrettier } from "../../utils/prettier-format";
 import { extractAtScope, FormattingScope } from "../../utils/prettier-scope";
+import {
+	type FormattingDecisionMatrix,
+	prevalidateFormattingPaths,
+} from "../../utils/prettier-validator";
 
 const indentCache = new WeakMap<TSESLint.SourceCode, string>();
 
@@ -63,6 +63,46 @@ interface ImplicitReturnFixOptions {
 	returnStatement: TSESTree.ReturnStatement;
 	returnValue: TSESTree.Expression;
 	sourceCode: TSESLint.SourceCode;
+}
+
+/**
+ * Enhanced validation using multi-path comparison (currently opt-in). This
+ * function demonstrates the systematic approach of formatting all variants and
+ * comparing them. Can be enabled in the future to replace single-path checks.
+ *
+ * @param returnValue - The return value expression.
+ * @param context - ESLint rule context.
+ * @param node - Arrow function node.
+ * @param prettierOptions - Prettier configuration.
+ * @returns Formatting metrics with enhanced decision info.
+ */
+
+function _calcPrettierLengthEnhanced(
+	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
+	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
+	node: TSESTree.ArrowFunctionExpression,
+	prettierOptions: PrettierOptions,
+): { isMultiline: boolean; length: number; matrix?: FormattingDecisionMatrix } {
+	const { maxLen } = getRuleOptions(context);
+	const { sourceCode } = context;
+
+	const matrix = prevalidateFormattingPaths(node, sourceCode, context, maxLen, prettierOptions);
+
+	/**
+	 * Use the systematic decision from the matrix. Falls back to snippet scope
+	 * if inline context isn't available.
+	 */
+	const primaryResult = matrix.implicit.inlineContext?.result ?? matrix.implicit.snippet?.result;
+
+	if (!primaryResult) {
+		return calcPrettierImplicitLength(returnValue, context, node, prettierOptions);
+	}
+
+	return {
+		isMultiline: primaryResult.isMultiline,
+		length: primaryResult.lineLength,
+		matrix,
+	};
 }
 
 function adjustJsxIndentation(bodyText: string, indentUnit: string): string {
@@ -119,13 +159,10 @@ function calcMethodChainImplicitLength(
 	const { sourceCode } = context;
 
 	// Use extractAtScope to build and format the isolated arrow function
-	const extraction = extractAtScope(
-		node,
-		FormattingScope.Snippet,
-		sourceCode,
-		context,
-		{ implicit: true, prettierOptions }
-	);
+	const extraction = extractAtScope(node, FormattingScope.Snippet, sourceCode, context, {
+		implicit: true,
+		prettierOptions,
+	});
 
 	if (extraction === null || extraction.result.error !== undefined) {
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
@@ -914,14 +951,12 @@ function performStandardCalculation(
 		? FormattingScope.InlineContext
 		: FormattingScope.Snippet;
 
-	// Use extractAtScope to build and format the arrow function in the appropriate context
-	const extraction = extractAtScope(
-		node,
-		scope,
-		sourceCode,
-		context,
-		{ implicit: true, prettierOptions }
-	);
+	// Use extractAtScope to build and format the arrow function in the
+	// appropriate context
+	const extraction = extractAtScope(node, scope, sourceCode, context, {
+		implicit: true,
+		prettierOptions,
+	});
 
 	if (extraction === null || extraction.result.error !== undefined) {
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
