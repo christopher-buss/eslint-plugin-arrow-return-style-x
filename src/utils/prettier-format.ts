@@ -1,9 +1,25 @@
 import type { TSESLint } from "@typescript-eslint/utils";
 
 import { dirname, resolve } from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 import type { Options as PrettierOptions } from "prettier";
 import { createSyncFn } from "synckit";
+
+export type PrettierConfig = boolean | null | PrettierOptions | undefined;
+
+export interface PrettierFormatResult {
+	allLineLengths?: Array<number>;
+	avgLineLength?: number;
+	error?: string;
+	formatted: string;
+	hasComments?: boolean;
+	isMultiline: boolean;
+	lineLength: number;
+	maxLineLength?: number;
+	parser?: string;
+	totalLines?: number;
+}
 
 interface ConfigResult {
 	config: Record<string, any>;
@@ -23,19 +39,17 @@ interface FormatRequest {
 }
 
 interface FormatResult {
+	/** Enhanced metrics. */
+	allLineLengths: Array<number>;
+	avgLineLength: number;
 	formatted: string;
+	hasComments: boolean;
 	isMultiline: boolean;
 	lineLength: number;
+	maxLineLength: number;
+	parser?: string;
 	success: true;
-}
-
-type PrettierConfig = boolean | null | PrettierOptions | undefined;
-
-interface PrettierFormatResult {
-	error?: string;
-	formatted: string;
-	isMultiline: boolean;
-	lineLength: number;
+	totalLines: number;
 }
 
 interface ResolveConfigRequest {
@@ -200,9 +214,16 @@ function handleFormattingError(err: unknown, code: string): PrettierFormatResult
 function processWorkerResult(workerResult: WorkerResult, code: string): PrettierFormatResult {
 	if (workerResult.success && "formatted" in workerResult) {
 		return {
+			// Pass through enhanced metrics
+			allLineLengths: workerResult.allLineLengths,
+			avgLineLength: workerResult.avgLineLength,
 			formatted: workerResult.formatted,
+			hasComments: workerResult.hasComments,
 			isMultiline: workerResult.isMultiline,
 			lineLength: workerResult.lineLength,
+			maxLineLength: workerResult.maxLineLength,
+			parser: workerResult.parser,
+			totalLines: workerResult.totalLines,
 		};
 	}
 

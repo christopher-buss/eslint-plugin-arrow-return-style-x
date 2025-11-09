@@ -236,6 +236,16 @@ const valid: Array<ValidTestCase> = [
 		`,
 		options: [{ maxLen: 80, usePrettier: { printWidth: 80 } }],
 	},
+	{
+		code: unindent`
+			async function killProcess(processId: string): Promise<void> {
+				await runPlatform({
+					darwin: async () => run("kill", ["-9", processId], { shouldShowCommand: false, shouldStreamOutput: false }),
+				});
+			}
+		`,
+		options: [{ maxLen: 100, usePrettier: { printWidth: 100 } }],
+	},
 ];
 
 const invalid: Array<InvalidTestCase> = [
@@ -531,8 +541,9 @@ const invalid: Array<InvalidTestCase> = [
 	},
 
 	// Test case to expose length calculation inconsistency
-	// Target the boundary between calculateImplicitLength vs isMaxLength vs line length
-	// This creates a scenario where different calculation methods might disagree
+	// Target the boundary between calculateImplicitLength vs isMaxLength vs line
+	// length This creates a scenario where different calculation methods might
+	// disagree
 	{
 		code: "const inconsistencyTest = () => { return obj.prop + other.value; }",
 		errors: [{ messageId: implicitMessageId }],

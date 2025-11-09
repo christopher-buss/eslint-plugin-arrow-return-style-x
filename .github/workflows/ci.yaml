@@ -1,11 +1,11 @@
 name: CI
 
 on:
-  push:
+  pull_request:
     branches:
       - main
 
-  pull_request:
+  push:
     branches:
       - main
 
@@ -19,9 +19,9 @@ jobs:
           run_install: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: lts/*
           cache: pnpm
 
+          node-version: lts/*
       - run: pnpm i -g @antfu/ni
       - run: nci
       - run: nr lint
@@ -29,12 +29,6 @@ jobs:
 
   test:
     runs-on: ${{ matrix.os }}
-
-    strategy:
-      matrix:
-        node: [lts/*]
-        os: [ubuntu-latest, windows-latest, macos-latest]
-      fail-fast: true
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -44,10 +38,16 @@ jobs:
       - name: Set node ${{ matrix.node }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: ${{ matrix.node }}
           cache: pnpm
+          node-version: ${{ matrix.node }}
 
       - run: pnpm i -g @antfu/ni
       - run: nci
       - run: nr build
       - run: nr test
+
+    strategy:
+      matrix:
+        node: [lts/*]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+      fail-fast: true
