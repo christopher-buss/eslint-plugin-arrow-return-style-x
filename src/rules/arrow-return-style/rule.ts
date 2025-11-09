@@ -9,6 +9,7 @@ import {
 	isPrettierEnabled,
 	shouldUsePrettier,
 } from "../../utils/prettier-format";
+import { extractAtScope, FormattingScope } from "../../utils/prettier-scope";
 
 const indentCache = new WeakMap<TSESLint.SourceCode, string>();
 
@@ -81,34 +82,6 @@ function adjustJsxIndentation(bodyText: string, indentUnit: string): string {
 	return adjustedLines.join("\n");
 }
 
-function buildCallExpressionContext({
-	arrowNode,
-	callExpression,
-	implicitReturnText,
-	parameters,
-	sourceCode,
-}: {
-	arrowNode: TSESTree.ArrowFunctionExpression;
-	callExpression: TSESTree.CallExpression;
-	implicitReturnText: string;
-	parameters: string;
-	sourceCode: TSESLint.SourceCode;
-}): string {
-	// For simple call expressions, just use the call expression itself
-	// For more complex cases like variable declarations, walk up to get the full
-	// context
-	const contextNode =
-		callExpression.parent.type === AST_NODE_TYPES.VariableDeclarator
-			? callExpression.parent
-			: callExpression;
-
-	const contextText = sourceCode.getText(contextNode);
-	const arrowFunctionText = sourceCode.getText(arrowNode);
-
-	const implicitArrowFunction = `${parameters} => ${implicitReturnText}`;
-	return contextText.replace(arrowFunctionText, implicitArrowFunction);
-}
-
 function buildConvertedArrowFunction(
 	node: TSESTree.ArrowFunctionExpression,
 	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
@@ -137,64 +110,6 @@ function buildConvertedForReturn(
 	return buildConvertedArrowFunction(node, returnValue, sourceCode);
 }
 
-function buildIsolatedArrowFunction(
-	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
-	sourceCode: TSESLint.SourceCode,
-	node: TSESTree.ArrowFunctionExpression,
-): null | string {
-	const returnValueText = sourceCode.getText(returnValue);
-	const nodeText = sourceCode.getText(node);
-	const arrowIndex = nodeText.indexOf(" => ");
-
-	if (arrowIndex === -1) {
-		return null;
-	}
-
-	const parameters = nodeText.substring(0, arrowIndex);
-	let implicitReturnText = returnValueText;
-
-	if (isObjectLiteral(returnValue)) {
-		implicitReturnText = `(${returnValueText})`;
-	}
-
-	return `${parameters} => ${implicitReturnText}`;
-}
-
-function buildPrettierCode(
-	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
-	sourceCode: TSESLint.SourceCode,
-	node: TSESTree.ArrowFunctionExpression,
-): null | string {
-	const returnValueText = sourceCode.getText(returnValue);
-	const nodeText = sourceCode.getText(node);
-	const arrowIndex = nodeText.indexOf(" => ");
-
-	if (arrowIndex === -1) {
-		return null;
-	}
-
-	const parameters = nodeText.substring(0, arrowIndex);
-	let implicitReturnText = returnValueText;
-
-	if (isObjectLiteral(returnValue)) {
-		implicitReturnText = `(${returnValueText})`;
-	}
-
-	if (isPartOfComplexExpression(node)) {
-		const fullContext = getFullExpressionContext(
-			node,
-			sourceCode,
-			parameters,
-			implicitReturnText,
-		);
-		if (fullContext) {
-			return fullContext;
-		}
-	}
-
-	return `${parameters} => ${implicitReturnText}`;
-}
-
 function calcMethodChainImplicitLength(
 	returnValue: TSESTree.BlockStatement | TSESTree.Expression,
 	context: TSESLint.RuleContext<MessageIds, ArrowReturnStyleOptions>,
@@ -202,19 +117,23 @@ function calcMethodChainImplicitLength(
 	prettierOptions: PrettierOptions,
 ): { isMultiline: boolean; length: number } {
 	const { sourceCode } = context;
-	const isolatedArrowFunction = buildIsolatedArrowFunction(returnValue, sourceCode, node);
-	if (isolatedArrowFunction === null) {
-		return createPrettierFallbackResult(returnValue, sourceCode, node);
-	}
 
-	const prettierResult = formatWithPrettier(isolatedArrowFunction, context, prettierOptions);
-	if (prettierResult.error !== undefined) {
+	// Use extractAtScope to build and format the isolated arrow function
+	const extraction = extractAtScope(
+		node,
+		FormattingScope.Snippet,
+		sourceCode,
+		context,
+		{ implicit: true, prettierOptions }
+	);
+
+	if (extraction === null || extraction.result.error !== undefined) {
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
 	}
 
 	return {
-		isMultiline: prettierResult.isMultiline,
-		length: prettierResult.lineLength,
+		isMultiline: extraction.result.isMultiline,
+		length: extraction.result.lineLength,
 	};
 }
 
@@ -630,76 +549,12 @@ function getBlockStatementTokens(
 	};
 }
 
-/**
- * Gets the contextual prefix for arrow functions in complex expressions. This
- * replaces fragile string splitting with safer source text extraction.
- *
- * @param node - The arrow function node.
- * @param sourceCode - ESLint source code object.
- * @param parameters - The function parameters text.
- * @param implicitReturnText - The implicit return value text.
- * @returns The contextual prefix string.
- */
-function getContextualPrefix(
-	node: TSESTree.ArrowFunctionExpression,
-	sourceCode: TSESLint.SourceCode,
-	parameters: string,
-	implicitReturnText: string,
-): string {
-	const arrowToken = getArrowToken(node, sourceCode);
-	if (!arrowToken) {
-		return "";
-	}
-
-	// Get the line containing the arrow
-	const lineStart = sourceCode.getIndexFromLoc({ column: 0, line: arrowToken.loc.start.line });
-	const arrowEnd = arrowToken.range[1];
-
-	if (typeof lineStart !== "number") {
-		return "";
-	}
-
-	const lineText = sourceCode.text.substring(lineStart, arrowEnd);
-	return `${lineText.trim()} ${parameters} => ${implicitReturnText}`;
-}
-
 function getExplicitReturnMessageId(body: TSESTree.ArrowFunctionExpression["body"]): MessageIds {
 	return isMultiline(body) &&
 		(body.type === AST_NODE_TYPES.ArrayExpression ||
 			body.type === AST_NODE_TYPES.ObjectExpression)
 		? IMPLICIT_RETURN_VIOLATION
 		: EXPLICIT_RETURN_VIOLATION;
-}
-
-/**
- * Gets the full expression context for arrow functions in complex expressions.
- * This builds the complete statement that prettier should format.
- *
- * @param node - The arrow function node.
- * @param sourceCode - ESLint source code object.
- * @param parameters - The function parameters text.
- * @param implicitReturnText - The implicit return value text.
- * @returns The full expression context string.
- */
-function getFullExpressionContext(
-	node: TSESTree.ArrowFunctionExpression,
-	sourceCode: TSESLint.SourceCode,
-	parameters: string,
-	implicitReturnText: string,
-): string {
-	const { parent } = node;
-
-	if (parent.type === AST_NODE_TYPES.CallExpression) {
-		return buildCallExpressionContext({
-			arrowNode: node,
-			callExpression: parent,
-			implicitReturnText,
-			parameters,
-			sourceCode,
-		});
-	}
-
-	return getContextualPrefix(node, sourceCode, parameters, implicitReturnText);
 }
 
 function getImplicitReturnMetrics(
@@ -1053,19 +908,28 @@ function performStandardCalculation(
 	prettierOptions: PrettierOptions,
 ): { isMultiline: boolean; length: number } {
 	const { sourceCode } = context;
-	const arrowFunctionCode = buildPrettierCode(returnValue, sourceCode, node);
-	if (arrowFunctionCode === null) {
-		return createPrettierFallbackResult(returnValue, sourceCode, node);
-	}
 
-	const prettierResult = formatWithPrettier(arrowFunctionCode, context, prettierOptions);
-	if (prettierResult.error !== undefined) {
+	// Determine the appropriate scope based on context
+	const scope = isPartOfComplexExpression(node)
+		? FormattingScope.InlineContext
+		: FormattingScope.Snippet;
+
+	// Use extractAtScope to build and format the arrow function in the appropriate context
+	const extraction = extractAtScope(
+		node,
+		scope,
+		sourceCode,
+		context,
+		{ implicit: true, prettierOptions }
+	);
+
+	if (extraction === null || extraction.result.error !== undefined) {
 		return createPrettierFallbackResult(returnValue, sourceCode, node);
 	}
 
 	return {
-		isMultiline: prettierResult.isMultiline,
-		length: prettierResult.lineLength,
+		isMultiline: extraction.result.isMultiline,
+		length: extraction.result.lineLength,
 	};
 }
 
