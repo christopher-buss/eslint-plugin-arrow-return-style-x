@@ -173,8 +173,16 @@ function buildInlineContext(
 		return `placeholder.${methodName}(${parameters} => ${body})`;
 	}
 
-	// Function call: useCallback(() => ...)
-	const functionName = sourceCode.getText(parent.callee);
+	// Function call: useCallback(() => ...), useEffect(() => ...), etc.
+	// Check if the call expression is part of a variable declaration to get full
+	// context
+	const contextNode =
+		parent.parent && parent.parent.type === AST_NODE_TYPES.VariableDeclarator
+			? parent.parent
+			: parent;
+
+	const contextText = sourceCode.getText(contextNode);
+	const arrowFunctionText = sourceCode.getText(node);
 	const body = getBodyForFormat(node, sourceCode, options);
 
 	if (body === null) {
@@ -182,7 +190,10 @@ function buildInlineContext(
 	}
 
 	const parameters = getParameters(node, sourceCode);
-	return `${functionName}(${parameters} => ${body})`;
+	const implicitArrowFunction = `${parameters} => ${body}`;
+
+	// Replace the arrow function in its context
+	return contextText.replace(arrowFunctionText, implicitArrowFunction);
 }
 
 /**
