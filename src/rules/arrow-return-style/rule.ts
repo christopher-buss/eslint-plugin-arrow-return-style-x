@@ -1345,7 +1345,7 @@ export const arrowReturnStyleRule = createEslintRule({
 		messages,
 		schema: [
 			{
-				additionalProperties: true,
+				additionalProperties: false,
 				properties: {
 					jsxAlwaysUseExplicitReturn: {
 						description: "Always use explicit return for JSX elements",
